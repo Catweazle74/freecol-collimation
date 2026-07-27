@@ -1,0 +1,148 @@
+# Baut bei einem Versions-Tag (z. B. v0.3.0-beta) self-contained Betas für alle
+# drei Plattformen (win-x64, linux-x64, osx-arm64) und veröffentlicht sie als
+# GitHub-Release. Öffentliches Pendant zur GitLab-Pipeline (.gitlab-ci.yml) —
+# dieses Repo ist der über scripts/publish-github.sh kuratierte öffentliche
+# Stand, daher keine internen Referenzen (kein gitlab.local o. Ä.) hier.
+#
+# Auslösen: Tag pushen, z. B. `git push origin v0.3.0-beta`
+# (scripts/publish-github.sh --tag v0.3.0-beta erledigt das für den github-Remote.)
+#
+# Paketformate wie in der GitLab-Pipeline: Windows als ZIP (dortiges
+# Standardformat), Linux/macOS als tar.gz — tar.gz erhält das Ausführbar-Bit
+# des App-Binaries, ZIP unter Unix nicht zuverlässig.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.rid }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [win-x64, linux-x64, osx-arm64]
+    steps:
+      - name: Quellcode auschecken
+        uses: actions/checkout@v4
+
+      - name: .NET SDK einrichten (Version aus global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Version aus dem Tag ableiten
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # Cross-Publish vom Linux-Runner für alle drei RIDs — analog zur
+      # GitLab-Pipeline, die dasselbe vom SDK-Container aus macht.
+      - name: dotnet publish (self-contained, ${{ matrix.rid }})
+        run: |
+          dotnet publish src/FreeCol.Ui -c Release -r "${{ matrix.rid }}" \
+            --self-contained -o "publish-${{ matrix.rid }}" \
+            -p:Version="${{ steps.version.outputs.version }}"
+
+      - name: Anleitung + Windows-Hinweise beilegen
+        run: |
+          cp docs/anleitung/freecol-anleitung.pdf "publish-${{ matrix.rid }}/" || true
+          if [ "${{ matrix.rid }}" = "win-x64" ]; then
+            cp BETA-WINDOWS.md "publish-${{ matrix.rid }}/" || true
+          fi
+
+      - name: Paket schnüren (ZIP für Windows, tar.gz sonst)
+        id: package
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          RID="${{ matrix.rid }}"
+          if [ "${RID}" = "win-x64" ]; then
+            PKG_FILE="FreeCol-${TAG}-${RID}.zip"
+            (cd "publish-${RID}" && zip -rq "../${PKG_FILE}" .)
+          else
+            PKG_FILE="FreeCol-${TAG}-${RID}.tar.gz"
+            tar -czf "${PKG_FILE}" -C "publish-${RID}" .
+          fi
+          echo "file=${PKG_FILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Paket als Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.rid }}
+          path: ${{ steps.package.outputs.file }}
+          if-no-files-found: error
+
+      # Anleitung als Einzeldatei + 3D-Druckteile-ZIP nur einmal bauen — der
+      # win-x64-Job übernimmt das, wie schon in der GitLab-Pipeline.
+      - name: Zusatz-Assets bauen (nur win-x64-Job)
+        if: matrix.rid == 'win-x64'
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          cp docs/anleitung/freecol-anleitung.pdf "freecol-anleitung.pdf"
+          PKG_3D_FILE="FreeCol-3D-Druckteile-${TAG}.zip"
+          (cd 3D && zip -rq "../${PKG_3D_FILE}" .)
+          echo "pkg_3d=${PKG_3D_FILE}" >> "$GITHUB_ENV"
+
+      - name: Anleitung (Einzeldatei) als Artefakt hochladen
+        if: matrix.rid == 'win-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-doku
+          path: freecol-anleitung.pdf
+          if-no-files-found: error
+
+      - name: 3D-Druckteile-ZIP als Artefakt hochladen
+        if: matrix.rid == 'win-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-3d
+          path: ${{ env.pkg_3d }}
+          if-no-files-found: error
+
+  release:
+    name: GitHub-Release erzeugen
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Version aus dem Tag ableiten
+        id: version
+        run: echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Alle Artefakte einsammeln
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: GitHub-Release erzeugen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "FreeCol ${{ steps.version.outputs.tag }}"
+          body: |
+            FreeCol Beta ${{ steps.version.outputs.tag }} — self-contained für Windows x64 (ZIP),
+            Linux x64 und macOS Apple Silicon (tar.gz). Die Einsteiger-Anleitung
+            (freecol-anleitung.pdf) liegt jedem Paket bei; Windows-Kamera-Hinweise
+            in BETA-WINDOWS.md. Die ASI-Kamerabibliothek ist NICHT enthalten —
+            unter Windows siehe BETA-WINDOWS.md, unter macOS
+            scripts/setup-asi-macos.sh.
+          files: |
+            dist/FreeCol-${{ steps.version.outputs.tag }}-win-x64.zip
+            dist/FreeCol-${{ steps.version.outputs.tag }}-linux-x64.tar.gz
+            dist/FreeCol-${{ steps.version.outputs.tag }}-osx-arm64.tar.gz
+            dist/freecol-anleitung.pdf
+            dist/FreeCol-3D-Druckteile-${{ steps.version.outputs.tag }}.zip
+          fail_on_unmatched_files: true
