@@ -1,0 +1,1233 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:FreeCol.Ui.ViewModels"
+        xmlns:cam="using:FreeCol.Camera"
+        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+        x:Class="FreeCol.Ui.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding AppTitle}"
+        WindowStartupLocation="CenterScreen"
+        Width="1800" Height="850"
+        MinWidth="1100" MinHeight="700">
+    <Design.DataContext>
+        <vm:MainWindowViewModel />
+    </Design.DataContext>
+
+    <Window.Resources>
+        <!-- Schrauben-Marker im Phasen-Diagramm (Punkt mit Nummer/Kürzel) -->
+        <DataTemplate x:Key="ScrewMarkerTemplate" x:DataType="vm:ScrewMarkerVm">
+            <Border Width="{Binding Diameter}" Height="{Binding Diameter}"
+                    CornerRadius="999"
+                    Background="{Binding Fill}"
+                    BorderBrush="{Binding Stroke}" BorderThickness="{Binding StrokeThickness}">
+                <TextBlock Text="{Binding Label}" FontSize="11" FontWeight="Bold"
+                           Foreground="#111111"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+        </DataTemplate>
+        <!-- Großer Drehzahl-Text neben einem Pfeil (aus Entfernung lesbar) -->
+        <DataTemplate x:Key="TurnLabelTemplate" x:DataType="vm:TurnLabelVm">
+            <TextBlock Text="{Binding Text}" FontSize="16" FontWeight="Bold"
+                       Foreground="#FF8C42" />
+        </DataTemplate>
+    </Window.Resources>
+
+    <Window.Styles>
+        <!-- Workflow-Leiste: aktiver Schritt hervorgehoben -->
+        <Style Selector="Button.workflow-step">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Padding" Value="6,3" />
+            <Setter Property="Margin" Value="0,0,4,4" />
+        </Style>
+        <!-- Statusanzeige (Chips 1+2, ohne ActivateCommand): kein Knopf-Gefühl —
+             kein Hover-Feedback, Pfeil-Cursor statt Hand, leicht gedämpfte Optik.
+             VOR .done/.active deklariert, damit deren Farbe sich durchsetzt; die
+             gedämpfte Optik gilt nur, solange der Status weder erledigt noch aktiv ist. -->
+        <Style Selector="Button.workflow-step.status">
+            <Setter Property="Cursor" Value="Arrow" />
+        </Style>
+        <Style Selector="Button.workflow-step.status:not(.active):not(.done)">
+            <Setter Property="Opacity" Value="0.8" />
+        </Style>
+        <Style Selector="Button.workflow-step.status:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{TemplateBinding Background}" />
+        </Style>
+        <Style Selector="Button.workflow-step.done">
+            <Setter Property="Background" Value="#3CB371" />
+            <Setter Property="Foreground" Value="#111111" />
+        </Style>
+        <Style Selector="Button.workflow-step.active">
+            <Setter Property="Background" Value="#6495ED" />
+            <Setter Property="Foreground" Value="#111111" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <!-- Schnellverfahren „Phase abgeschlossen": Versatz nicht im Ziel, erster
+             Klick scharf geschaltet → Warnfarbe analog der Warn-Boxen (#FF8C42). -->
+        <Style Selector="Button.phase-complete-warn">
+            <Setter Property="Background" Value="#FF8C42" />
+            <Setter Property="Foreground" Value="#111111" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+    </Window.Styles>
+
+    <Grid ColumnDefinitions="*,Auto">
+    <Grid Grid.Column="0" RowDefinitions="Auto,Auto,Auto,*,Auto">
+        <Border Grid.Row="0" Padding="8" BorderBrush="#22000000" BorderThickness="0,0,0,1">
+            <!-- WrapPanel statt StackPanel: bricht auf schmalen Fenstern in eine
+                 zweite Zeile um, statt die Steuerelemente ineinander zu schieben.
+                 WrapPanel kennt kein Spacing → Abstände über eine Child-Style. -->
+            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <WrapPanel.Styles>
+                    <Style Selector="WrapPanel > :is(Control)">
+                        <Setter Property="Margin" Value="0,2,8,2" />
+                    </Style>
+                </WrapPanel.Styles>
+                <TextBlock Text="Kamera:" VerticalAlignment="Center" />
+                <ComboBox ItemsSource="{Binding Devices}"
+                          SelectedItem="{Binding SelectedDevice}"
+                          IsEnabled="{Binding !IsRunning}"
+                          Width="360">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="cam:CameraDevice">
+                            <TextBlock Text="{Binding Display}"
+                                       ToolTip.Tip="{Binding SerialToolTip}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <Button Content="⟳" Command="{Binding RefreshDevicesCommand}"
+                        IsEnabled="{Binding !IsRunning}"
+                        ToolTip.Tip="Kameraliste aktualisieren (nach dem Anschließen einer Kamera)" />
+                <ComboBox ItemsSource="{Binding Resolutions}"
+                          SelectedItem="{Binding SelectedResolution}"
+                          IsEnabled="{Binding !IsRunning}"
+                          Width="160"
+                          ToolTip.Tip="Aufnahme-Auflösung — höher = mehr Pixel für kleine Strukturen (Marker). Vor dem Start wählen; Kalibrierung/Markierungen danach neu setzen.">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:CaptureResolution">
+                            <TextBlock Text="{Binding Label}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <Button Content="Start" Command="{Binding StartCommand}" />
+                <Button Content="Stop"  Command="{Binding StopCommand}" />
+                <TextBlock Text="Sterntest: Auto-Zoom auf den Donut · Mausrad zoomt"
+                           VerticalAlignment="Center" Foreground="#888"
+                           IsVisible="{Binding IsStarTestMode}" />
+            </WrapPanel>
+        </Border>
+
+        <!-- Zeile 2 „Bild & Ansicht": nur bei laufender Kamera außerhalb des
+             Sterntests relevant (dort eigene Zoom-/Overlay-Bedienung im Bild).
+             Gruppen „Bild:" (Belichtung/Fokus) und „Ansicht:" (Zoom/Overlay/
+             Snapshot) werden bei fehlender Verfügbarkeit ausgeblendet statt
+             ausgegraut. -->
+        <Border Grid.Row="1" Padding="8" BorderBrush="#22000000" BorderThickness="0,0,0,1"
+                IsVisible="{Binding ShowImageControlRow}">
+            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <WrapPanel.Styles>
+                    <Style Selector="WrapPanel > :is(Control)">
+                        <Setter Property="Margin" Value="0,2,8,2" />
+                    </Style>
+                </WrapPanel.Styles>
+                <TextBlock Text="Bild:" VerticalAlignment="Center" Foreground="#888" />
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
+                            IsVisible="{Binding IsExposureControlAvailable}">
+                    <TextBlock Text="Belichtung:" VerticalAlignment="Center" />
+                    <CheckBox IsChecked="{Binding IsAutoExposure}" Content="Auto" VerticalAlignment="Center" />
+                    <Slider Value="{Binding ExposureValue}"
+                            Minimum="{Binding ExposureMin}" Maximum="{Binding ExposureMax}"
+                            Width="220" VerticalAlignment="Center"
+                            IsEnabled="{Binding ManualExposureEnabled}" />
+                    <TextBlock Text="{Binding ExposureValue, StringFormat={}{0:0}}"
+                               Width="60" VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
+                            IsVisible="{Binding IsFocusControlAvailable}">
+                    <TextBlock Text="Fokus:" VerticalAlignment="Center" />
+                    <CheckBox IsChecked="{Binding IsAutoFocus}" Content="Auto" VerticalAlignment="Center" />
+                    <Slider Value="{Binding FocusValue}"
+                            Minimum="{Binding FocusMin}" Maximum="{Binding FocusMax}"
+                            Width="220" VerticalAlignment="Center"
+                            IsEnabled="{Binding ManualFocusEnabled}" />
+                    <TextBlock Text="{Binding FocusValue, StringFormat={}{0:0}}"
+                               Width="60" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Text="Ansicht:" VerticalAlignment="Center" Foreground="#888" />
+                <TextBlock Text="Zoom:" VerticalAlignment="Center" />
+                <Slider Value="{Binding ZoomPercent}"
+                        Minimum="{Binding ZoomMin}" Maximum="{Binding ZoomMax}"
+                        SmallChange="1" LargeChange="10"
+                        Width="200" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding ZoomPercent, StringFormat={}{0:0}%}"
+                           Width="50" VerticalAlignment="Center" />
+                <CheckBox IsChecked="{Binding IsOverlayEnabled}" Content="Overlay"
+                          VerticalAlignment="Center" />
+                <Button Content="Snapshot" Command="{Binding SnapshotCommand}" />
+            </WrapPanel>
+        </Border>
+
+        <Border Grid.Row="2" Padding="8"
+                Background="{Binding CalibrationWizard.PanelBackground}"
+                BorderBrush="{Binding CalibrationWizard.PanelBorderBrush}"
+                BorderThickness="0,3,0,3"
+                IsVisible="{Binding CalibrationWizard.IsActive}">
+            <DockPanel LastChildFill="True">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+                    <Button Content="Speichern"
+                            Command="{Binding CalibrationWizard.SaveCommand}"
+                            IsVisible="{Binding CalibrationWizard.IsAtReview}" />
+                    <Button Content="Abbrechen"
+                            Command="{Binding CalibrationWizard.CancelCommand}" />
+                </StackPanel>
+                <TextBlock Text="{Binding CalibrationWizard.InstructionText}"
+                           Foreground="#EEEEFF"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap" />
+            </DockPanel>
+        </Border>
+
+        <Border Grid.Row="2" Padding="8"
+                BorderBrush="#22000000" BorderThickness="0,0,0,1"
+                IsVisible="{Binding ShowCalibrationStatusBar}">
+            <DockPanel LastChildFill="True">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+                    <!-- Überschreibschutz (Zwei-Klick): existiert bereits eine
+                         Kalibrierung, warnt der Button-Text vor dem Ersetzen. -->
+                    <Button Content="{Binding CalibrationWizard.StartButtonText}"
+                            Command="{Binding CalibrationWizard.StartCommand}"
+                            Classes.phase-complete-warn="{Binding CalibrationWizard.IsOverwriteArmed}" />
+                    <Button Content="{Binding DeleteCalibrationButtonText}" Command="{Binding DeleteCalibrationCommand}"
+                            IsVisible="{Binding HasCalibration}" />
+                </StackPanel>
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding CalibrationSummary}"
+                               ToolTip.Tip="RMS = mittlere Abweichung der Kalibrier-Stützpunkte vom Kreisfit. Kleiner ist besser: unter 0,5 px ausgezeichnet, unter 1 px gut, über 2 px besser neu kalibrieren." />
+                    <TextBlock Text="{Binding CalibrationWizard.InstructionText}"
+                               Foreground="#FF8C42" FontSize="11" TextWrapping="Wrap"
+                               IsVisible="{Binding CalibrationWizard.IsOverwriteArmed}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <Border Grid.Row="3" Background="#111">
+            <Grid>
+                <Image x:Name="LiveImage" Source="{Binding CurrentFrame}" Stretch="Uniform"
+                       HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                <Canvas x:Name="OverlayCanvas" IsHitTestVisible="False" ClipToBounds="True">
+                    <Ellipse Canvas.Left="{Binding OazRandVm.DisplayLeft}"
+                             Canvas.Top="{Binding OazRandVm.DisplayTop}"
+                             Width="{Binding OazRandVm.DisplayWidth}"
+                             Height="{Binding OazRandVm.DisplayHeight}"
+                             Stroke="{Binding OazRandVm.Swatch}" StrokeThickness="1"
+                             IsVisible="{Binding OazRandVm.IsRenderVisible}" />
+                    <Ellipse Canvas.Left="{Binding HauptspiegelReflexVm.DisplayLeft}"
+                             Canvas.Top="{Binding HauptspiegelReflexVm.DisplayTop}"
+                             Width="{Binding HauptspiegelReflexVm.DisplayWidth}"
+                             Height="{Binding HauptspiegelReflexVm.DisplayHeight}"
+                             Stroke="{Binding HauptspiegelReflexVm.Swatch}" StrokeThickness="1"
+                             IsVisible="{Binding HauptspiegelReflexVm.IsRenderVisible}" />
+                    <Ellipse Canvas.Left="{Binding SekundaerVm.DisplayLeft}"
+                             Canvas.Top="{Binding SekundaerVm.DisplayTop}"
+                             Width="{Binding SekundaerVm.DisplayWidth}"
+                             Height="{Binding SekundaerVm.DisplayHeight}"
+                             Stroke="{Binding SekundaerVm.Swatch}" StrokeThickness="1"
+                             IsVisible="{Binding SekundaerVm.IsRenderVisible}" />
+                    <Ellipse Canvas.Left="{Binding MarkerVm.DisplayLeft}"
+                             Canvas.Top="{Binding MarkerVm.DisplayTop}"
+                             Width="{Binding MarkerVm.DisplayWidth}"
+                             Height="{Binding MarkerVm.DisplayHeight}"
+                             Stroke="{Binding MarkerVm.Swatch}" StrokeThickness="0.75"
+                             IsVisible="{Binding MarkerVm.IsRenderVisible}" />
+                    <Ellipse Canvas.Left="{Binding LinseVm.DisplayLeft}"
+                             Canvas.Top="{Binding LinseVm.DisplayTop}"
+                             Width="{Binding LinseVm.DisplayWidth}"
+                             Height="{Binding LinseVm.DisplayHeight}"
+                             Stroke="{Binding LinseVm.Swatch}" StrokeThickness="0.75"
+                             IsVisible="{Binding LinseVm.IsRenderVisible}" />
+                    <!-- Linsen-Mittelpunkt: immer sichtbar (die Linse hat keinen
+                         physischen Markierungsring), damit ihre Lage stets erkennbar ist -->
+                    <Path Canvas.Left="{Binding LinseCrossTopLeftX}"
+                          Canvas.Top="{Binding LinseCrossTopLeftY}"
+                          Stroke="{Binding LinseVm.Swatch}" StrokeThickness="0.5"
+                          IsVisible="{Binding ShowLinseCross}"
+                          Data="M 0,8 L 16,8 M 8,0 L 8,16" />
+                    <Path Canvas.Left="{Binding ReticleTopLeftX}"
+                          Canvas.Top="{Binding ReticleTopLeftY}"
+                          Stroke="#32C8FF" StrokeThickness="1"
+                          IsVisible="{Binding ShowReticle}"
+                          Data="M 0,5 L 10,5 M 5,0 L 5,10" />
+                    <Path Canvas.Left="{Binding ActiveCrossTopLeftX}"
+                          Canvas.Top="{Binding ActiveCrossTopLeftY}"
+                          Stroke="{Binding ActiveCrossBrush}" StrokeThickness="0.5"
+                          IsVisible="{Binding ShowActiveCross}"
+                          Data="M 0,8 L 16,8 M 8,0 L 8,16" />
+                    <!-- Fokus-ROI (Box am Fokus-Anker) der selektierten Markierung:
+                         zeigt, wo der Autofokus die Schärfe misst -->
+                    <Rectangle Canvas.Left="{Binding FocusRoiLeft}"
+                               Canvas.Top="{Binding FocusRoiTop}"
+                               Width="{Binding FocusRoiSize}"
+                               Height="{Binding FocusRoiSize}"
+                               Stroke="{Binding FocusRoiBrush}" StrokeThickness="1"
+                               StrokeDashArray="3,3" IsVisible="{Binding ShowFocusRoi}" />
+                    <!-- Justage-Overlay: gestrichelter SOLL-Kreis + IST→SOLL-Pfeil -->
+                    <Ellipse Canvas.Left="{Binding JustageSollLeft}"
+                             Canvas.Top="{Binding JustageSollTop}"
+                             Width="{Binding JustageSollWidth}"
+                             Height="{Binding JustageSollHeight}"
+                             Stroke="{Binding JustageOverlayBrush}" StrokeThickness="1"
+                             StrokeDashArray="4,3"
+                             IsVisible="{Binding ShowJustageOverlay}" />
+                    <Line StartPoint="{Binding JustageIstPoint}"
+                          EndPoint="{Binding JustageSollPoint}"
+                          Stroke="{Binding JustageOverlayBrush}" StrokeThickness="2"
+                          IsVisible="{Binding ShowJustageArrow}" />
+                    <!-- Sterntest: äußerer Scheibchen-Kreis (grün) + innere
+                         Obstruktion (rot) + Versatzlinie -->
+                    <Ellipse Canvas.Left="{Binding StarOuterLeft}" Canvas.Top="{Binding StarOuterTop}"
+                             Width="{Binding StarOuterSize}" Height="{Binding StarOuterSize}"
+                             Stroke="#32E632" StrokeThickness="1.5"
+                             IsVisible="{Binding ShowStarTestOverlay}" />
+                    <Ellipse Canvas.Left="{Binding StarInnerLeft}" Canvas.Top="{Binding StarInnerTop}"
+                             Width="{Binding StarInnerSize}" Height="{Binding StarInnerSize}"
+                             Stroke="#FF4040" StrokeThickness="1.5"
+                             IsVisible="{Binding ShowStarTestOverlay}" />
+                    <Line StartPoint="{Binding StarSollPoint}" EndPoint="{Binding StarIstPoint}"
+                          Stroke="#FFD000" StrokeThickness="1.5"
+                          IsVisible="{Binding ShowStarTestOverlay}" />
+                </Canvas>
+
+                <!-- Overlay-Legende: ordnet die farbigen Kreise/Linien im Live-Bild
+                     ihren Bedeutungen zu, damit unerfahrene Nutzer das Overlay lesen
+                     können. Klick-transparent (verdeckt die Bild-Interaktion nicht),
+                     kontextabhängig: Markierungen bzw. Sterntest. -->
+                <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8"
+                        Background="#A0000000" CornerRadius="4" Padding="8,6"
+                        IsHitTestVisible="False"
+                        IsVisible="{Binding ShowOverlayLegend}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Legende" FontSize="10" FontWeight="Bold" Foreground="#AAA" />
+                        <!-- Markierungen (außerhalb des Sterntests): nur die aktuell
+                             gezeichneten werden gelistet. -->
+                        <ItemsControl ItemsSource="{Binding MarkingVms}"
+                                      IsVisible="{Binding !IsStarTestMode}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:MarkingViewModel">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,1"
+                                                IsVisible="{Binding IsRenderVisible}">
+                                        <Rectangle Width="11" Height="11" Fill="{Binding Swatch}"
+                                                   Stroke="#666" StrokeThickness="1"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding Name}" Foreground="#EEE"
+                                                   FontSize="11" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <!-- Sterntest: feste Bedeutung der drei Kurven. -->
+                        <StackPanel Spacing="2" IsVisible="{Binding ShowStarTestOverlay}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Rectangle Width="11" Height="11" Fill="#32E632" VerticalAlignment="Center" />
+                                <TextBlock Text="Scheibchen (SOLL)" Foreground="#EEE" FontSize="11" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Rectangle Width="11" Height="11" Fill="#FF4040" VerticalAlignment="Center" />
+                                <TextBlock Text="Obstruktion (IST)" Foreground="#EEE" FontSize="11" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Rectangle Width="11" Height="11" Fill="#FFD000" VerticalAlignment="Center" />
+                                <TextBlock Text="Versatz (IST→SOLL)" Foreground="#EEE" FontSize="11" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Gesten-Hinweis: welche Maus-Interaktionen im Bild gerade gelten
+                     (kontextabhängig je Modus/Phase/Auswahl). Klick-transparent. -->
+                <Border HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="8"
+                        Background="#A0000000" CornerRadius="4" Padding="8,4"
+                        IsHitTestVisible="False"
+                        IsVisible="{Binding HasFrameGestureHint}">
+                    <TextBlock Text="{Binding FrameGestureHint}" FontSize="11"
+                               Foreground="#DDD" TextWrapping="Wrap" />
+                </Border>
+
+                <!-- „So geht's"-Box: frei verschiebbares Overlay über dem
+                     Livebild (statt fest in der Sidebar, die dadurch dauerhaft
+                     gescrollt werden musste). Titelzeile (Grip) verschiebt die
+                     Box per Maus; Position wird in MainWindow.axaml.cs an das
+                     Bild-Grid geklemmt und in window-state.json persistiert. -->
+                <Canvas x:Name="GuideBoxHost">
+                    <Border x:Name="GuideBoxOverlay"
+                            Canvas.Left="{Binding GuideBoxX}" Canvas.Top="{Binding GuideBoxY}"
+                            MaxWidth="380"
+                            Background="#CC1A2A44" BorderBrush="#6495ED" BorderThickness="1"
+                            CornerRadius="4" Padding="8"
+                            IsVisible="{Binding HasGuideText}">
+                        <StackPanel Spacing="4">
+                            <StackPanel x:Name="GuideBoxGrip" Orientation="Horizontal" Spacing="6"
+                                        Cursor="SizeAll">
+                                <TextBlock Text="⠿" FontSize="13" Foreground="#9CC0FF"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Text="So geht's" FontWeight="Bold" FontSize="13"
+                                           Foreground="#9CC0FF" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding GuideText}" FontSize="14" TextWrapping="Wrap"
+                                       LineHeight="19" />
+                        </StackPanel>
+                    </Border>
+                </Canvas>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="4" Padding="8" Background="#0A000000">
+            <StackPanel Orientation="Horizontal" Spacing="16">
+                <!-- Sichtbarer Busy-Zustand: zeigt bei sekundenlangen Operationen
+                     (Autofokus/Automarkierung/Erkennen), dass die App arbeitet. -->
+                <ProgressBar IsIndeterminate="True" Width="120" Height="14"
+                             VerticalAlignment="Center"
+                             IsVisible="{Binding IsBusy}" />
+                <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+    </Grid>
+
+    <Border Grid.Column="1" Width="320" Padding="10"
+            BorderBrush="#22000000" BorderThickness="1,0,0,0">
+        <DockPanel>
+            <!-- Die „So geht's"-Erklärbox sitzt jetzt als frei verschiebbares
+                 Overlay über dem Livebild (siehe Grid.Row="3" oben), nicht mehr
+                 fest in dieser Sidebar — sie fraß dort permanent Höhe, sodass
+                 die Sidebar dauerhaft gescrollt werden musste. -->
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="8">
+            <!-- Workflow-Leiste: die fachliche Reihenfolge sichtbar machen.
+                 ✓ = erledigt, hervorgehoben = aktiver Modus; Schritte 3-5 wechseln
+                 per Klick den Modus, 1-2 sind Status (ToolTip erklärt). -->
+            <ItemsControl ItemsSource="{Binding WorkflowSteps}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:WorkflowStepVm">
+                        <Button Classes="workflow-step" Classes.active="{Binding IsActive}"
+                                Classes.done="{Binding IsDone}"
+                                Classes.status="{Binding !IsClickable}"
+                                Content="{Binding Text}"
+                                Command="{Binding ActivateCommand}"
+                                ToolTip.Tip="{Binding Hint}" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Kamera-Gate: ohne laufende Kamera werden Markierungen/Schrauben
+                 nicht gespeichert (kein CameraKey) — aktiv warnen statt still
+                 verpuffen lassen, mit direktem Weg zur Abhilfe. -->
+            <Border Background="#33FF8C42" BorderBrush="#FF8C42" BorderThickness="1"
+                    CornerRadius="4" Padding="8"
+                    IsVisible="{Binding ShowNoCameraGate}">
+                <StackPanel Spacing="6">
+                    <TextBlock FontWeight="Bold" Text="⚠ Keine Kamera aktiv" />
+                    <TextBlock TextWrapping="Wrap" FontSize="12"
+                               Text="Markierungen und Schrauben-Daten werden erst gespeichert, wenn eine Kamera läuft. Oben Kamera wählen, dann:" />
+                    <Button Content="Kamera starten" Command="{Binding StartCommand}"
+                            HorizontalAlignment="Stretch" />
+                    <TextBlock TextWrapping="Wrap" FontSize="12"
+                               Text="Nach dem Start geht's mit ‚3 Markieren' weiter — die Markierungen erkennt die App automatisch." />
+                </StackPanel>
+            </Border>
+
+            <!-- Kalibrier-Entscheidung: Start() lädt eine vorhandene Kalibrierung
+                 weiterhin still (der richtige Default) — dieser Banner macht die
+                 Entscheidung "verwenden vs. neu bestimmen" nur sichtbar. -->
+            <Border Background="#1A6495ED" BorderBrush="#6495ED" BorderThickness="1"
+                    CornerRadius="4" Padding="8"
+                    IsVisible="{Binding ShowCalibrationDecision}">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="Kalibrierung gefunden" FontWeight="Bold" Foreground="#9CC0FF" />
+                    <TextBlock Text="{Binding CalibrationSummary}" FontSize="12" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding CalibrationDecisionScrewText}" FontSize="12" TextWrapping="Wrap"
+                               IsVisible="{Binding ShowCalibrationDecisionScrewLine}" />
+                    <TextBlock Text="{Binding CalibrationDecisionStorageKeyText}" FontSize="12" TextWrapping="Wrap"
+                               Foreground="#9CC0FF" />
+                    <TextBlock Text="Für die geführte Justage nicht nötig — im Zweifel ‚Verwenden'." FontSize="12"
+                               TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button Content="Verwenden" Command="{Binding UseExistingCalibrationCommand}"
+                                HorizontalAlignment="Stretch" />
+                        <Button Content="Neu kalibrieren" Command="{Binding RecalibrateNowCommand}"
+                                HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Auflösungs-Mismatch: die geladenen Markierungen stammen aus einer
+                 anderen Capture-Größe als der laufenden Kamera — Ringe/Empfehlungen
+                 bleiben ausgeblendet statt falsch skaliert zu zeichnen (siehe
+                 MainWindowViewModel.MarkingsResolutionMismatch). Keine automatische
+                 Umskalierung — Daten bleiben erhalten. -->
+            <Border Background="#33FF8C42" BorderBrush="#FF8C42" BorderThickness="1"
+                    CornerRadius="4" Padding="8"
+                    IsVisible="{Binding MarkingsResolutionMismatch}">
+                <StackPanel Spacing="6">
+                    <TextBlock FontWeight="Bold" TextWrapping="Wrap"
+                               Text="⚠ Markierungen passen nicht zur Auflösung" />
+                    <TextBlock Text="{Binding MarkingsResolutionMismatchHint}" FontSize="12" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <Button Content="{Binding JustageToggleText}"
+                    Command="{Binding ToggleJustageModeCommand}"
+                    HorizontalAlignment="Stretch" />
+            <Button Content="{Binding StarTestToggleText}"
+                    Command="{Binding ToggleStarTestModeCommand}"
+                    HorizontalAlignment="Stretch" />
+
+            <!-- Justage-Abschluss-Handoff: Grobjustage fertig, weiter zur
+                 Feinjustage am echten Stern. Nicht sichtbar während der
+                 Justage (Nutzer justiert dort bewusst neu) oder im
+                 Sterntest selbst (dort nicht mehr nötig). -->
+            <Border Background="#1A3CB371" BorderBrush="#3CB371" BorderThickness="1"
+                    CornerRadius="4" Padding="8"
+                    IsVisible="{Binding ShowJustageCompleteBanner}">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="✅ Grobjustage abgeschlossen" FontWeight="Bold" Foreground="#3CB371" />
+                    <TextBlock TextWrapping="Wrap" FontSize="12"
+                               Text="1. Konter-/Arretierschrauben vorsichtig gleichmäßig anziehen (nicht überdrehen).&#10;2. Mit „Markierung aktualisieren“ gegenprüfen, dass alles im Ziel bleibt.&#10;3. Dann Feinjustage am echten Stern." />
+                    <Button Content="Weiter zum Sterntest"
+                            Command="{Binding GoToStarTestCommand}"
+                            HorizontalAlignment="Stretch" />
+                </StackPanel>
+            </Border>
+
+            <!-- Markierungs-Modus -->
+            <StackPanel Spacing="8" IsVisible="{Binding IsMarkingsMode}">
+            <TextBlock Text="Markierungen" FontWeight="Bold" />
+            <Button Content="Automarkierung"
+                    Command="{Binding RunAutoMarkingCommand}"
+                    IsEnabled="{Binding !IsBusy}"
+                    HorizontalAlignment="Stretch" />
+            <Separator />
+            <ItemsControl ItemsSource="{Binding MarkingVms}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:MarkingViewModel">
+                        <StackPanel Spacing="2" Margin="0,4,0,4">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Rectangle Width="14" Height="14"
+                                           Fill="{Binding Swatch}"
+                                           Stroke="#444" StrokeThickness="1" />
+                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
+                                           ToolTip.Tip="{Binding Hint}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="6" Margin="20,0,0,0">
+                                <RadioButton GroupName="MarkingEdit"
+                                             IsChecked="{Binding IsSelectedForEdit}"
+                                             Content="Justage"
+                                             ToolTip.Tip="Diese Markierung für Pixel-Nudge, Scharfstellen und als Justage-Referenz auswählen." />
+                                <CheckBox IsChecked="{Binding IsVisible}" Content="Sichtbar"
+                                          ToolTip.Tip="Zeigt oder verbirgt diese Markierung im Bild (Overlay)." />
+                                <CheckBox IsChecked="{Binding IsAutoEnabled}" Content="Auto"
+                                          ToolTip.Tip="Bei ‚Automarkierung' berücksichtigen. Abwählen, um diese Markierung von der Auto-Erkennung auszuschließen und nur manuell zu setzen." />
+                            </StackPanel>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Border Margin="0,12,0,0" Padding="6,8,6,6"
+                    BorderBrush="#22000000" BorderThickness="0,1,0,0">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="Mitte pixelweise" FontWeight="Bold" />
+                    <Grid ColumnDefinitions="40,40,40" RowDefinitions="32,32,32"
+                          HorizontalAlignment="Center">
+                        <Button Grid.Row="0" Grid.Column="1" Content="↑"
+                                Command="{Binding NudgeCommand}" CommandParameter="up"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                        <Button Grid.Row="1" Grid.Column="0" Content="←"
+                                Command="{Binding NudgeCommand}" CommandParameter="left"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                        <Button Grid.Row="1" Grid.Column="2" Content="→"
+                                Command="{Binding NudgeCommand}" CommandParameter="right"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                        <Button Grid.Row="2" Grid.Column="1" Content="↓"
+                                Command="{Binding NudgeCommand}" CommandParameter="down"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                    </Grid>
+                    <Button Content="Scharfstellen (ROI-Autofokus)"
+                            Command="{Binding FocusSelectedMarkingCommand}"
+                            IsEnabled="{Binding !IsBusy}"
+                            HorizontalAlignment="Stretch"
+                            ToolTip.Tip="Fokussiert auf die selektierte Markierung. Nur auf Anforderung — läuft bei hoher Auflösung einige Sekunden." />
+                    <Button Content="Scharfstellen + Erkennen"
+                            Command="{Binding FocusAndDetectSelectedMarkingCommand}"
+                            IsEnabled="{Binding !IsBusy}"
+                            HorizontalAlignment="Stretch"
+                            ToolTip.Tip="Fokussiert auf die selektierte Markierung und erkennt danach nur dieses eine Feature auf dem frisch scharfgestellten Bild. Berücksichtigt, dass bei hoher Auflösung nicht alle Markierungen gleichzeitig scharf sein können." />
+                </StackPanel>
+            </Border>
+
+            <Border Margin="0,12,0,0" Padding="6,8,6,6"
+                    BorderBrush="#22000000" BorderThickness="0,1,0,0">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Justage-Versatz" FontWeight="Bold" />
+
+                    <StackPanel Spacing="2" IsVisible="{Binding HasSekundaerToOazRand}">
+                        <TextBlock Text="1. Sekundär → OAZ-Rand" FontSize="11" FontWeight="Bold" />
+                        <TextBlock Text="{Binding SekundaerToOazRandText}" FontSize="11" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="2" IsVisible="{Binding HasHsrToSekundaer}">
+                        <TextBlock Text="2. Hauptspiegel-Reflex → Sekundär" FontSize="11" FontWeight="Bold" />
+                        <TextBlock Text="{Binding HsrToSekundaerText}" FontSize="11" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="2" IsVisible="{Binding HasOffsetReading}">
+                        <TextBlock Text="3. Marker → Optisches Zentrum" FontSize="11" FontWeight="Bold" />
+                        <Canvas Width="120" Height="120" Background="#08000000"
+                                HorizontalAlignment="Center">
+                            <Ellipse Canvas.Left="55" Canvas.Top="55"
+                                     Width="10" Height="10"
+                                     Stroke="#FFC8FF" StrokeThickness="1" />
+                            <Line StartPoint="60,60"
+                                  EndPoint="{Binding ArrowEndPoint}"
+                                  Stroke="Red" StrokeThickness="2" />
+                        </Canvas>
+                        <TextBlock Text="{Binding OffsetText}" FontSize="11" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="2" IsVisible="{Binding HasSekundaerEccentricity}">
+                        <TextBlock Text="Sekundär-Exzentrizität" FontSize="11" FontWeight="Bold" />
+                        <TextBlock Text="{Binding SekundaerEccentricityText}" FontSize="11" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            </StackPanel>
+
+            <!-- Justage-Modus -->
+            <StackPanel Spacing="8" IsVisible="{Binding IsJustageMode}">
+                <TextBlock Text="Justage" FontWeight="Bold" />
+                <CheckBox IsChecked="{Binding IsPhase1Enabled}"
+                          Content="Fangspiegel-Spinne justierbar"
+                          ToolTip.Tip="Abwählen bei fest zentrierter CNC-Spinne — Phase 1 entfällt dann." />
+                <StackPanel Spacing="4">
+                    <RadioButton GroupName="JustagePhase"
+                                 IsChecked="{Binding IsPhase0Selected}"
+                                 Content="{Binding Phase0Title}" />
+                    <RadioButton GroupName="JustagePhase"
+                                 IsChecked="{Binding IsPhase1Selected}"
+                                 IsEnabled="{Binding IsPhase1Enabled}"
+                                 IsVisible="{Binding IsPhase1Enabled}"
+                                 Content="{Binding Phase1Title}" />
+                    <RadioButton GroupName="JustagePhase"
+                                 IsChecked="{Binding IsPhase2Selected}"
+                                 Content="{Binding Phase2Title}" />
+                    <RadioButton GroupName="JustagePhase"
+                                 IsChecked="{Binding IsPhase3Selected}"
+                                 Content="{Binding Phase3Title}" />
+                </StackPanel>
+                <!-- Sanftes Gate: kein Hard-Block, nur ein Hinweis, wenn eine
+                     Vorgänger-Phase noch nicht im Ziel ist. Springen/Fortsetzen
+                     bleibt jederzeit möglich. -->
+                <TextBlock Text="{Binding PhaseOrderHint}"
+                           IsVisible="{Binding HasPhaseOrderHint}"
+                           Foreground="#FF8C42" FontSize="11" TextWrapping="Wrap" />
+                <Separator />
+                <TextBlock Text="{Binding ActivePhaseTitle}" FontWeight="Bold" />
+
+                <!-- Phase 0: grundlegende Orientierung (OAZ-Position) für alle Skizzen -->
+                <StackPanel Spacing="8" IsVisible="{Binding IsOrientationPhase}">
+                    <TextBlock Text="Stelle ein, wo der Okularauszug (OAZ) aus deiner Sicht am Teleskop sitzt. Alle Phasen-Skizzen richten sich danach aus."
+                               FontSize="11" TextWrapping="Wrap" Foreground="#CCC" />
+                    <TextBlock Text="{Binding OazClockText}" FontWeight="Bold" />
+                    <Slider Minimum="0" Maximum="360" TickFrequency="30"
+                            Value="{Binding OazAngleDeg}"
+                            ToolTip.Tip="Wo sitzt der OAZ aus deiner Sicht? Skizzen rotieren im Uhrzeigersinn von oben." />
+                    <!-- OAZ-Richtungsindikator: statischer Tubus-Querschnitt; Marker-Linie
+                         und OAZ-Rohr (Rechteck, das die Tubuswand überlagert — größtenteils
+                         außen, ein Stück innen) deterministisch per Trigonometrie platziert. -->
+                    <Canvas Width="120" Height="120" HorizontalAlignment="Center">
+                        <Ellipse Width="80" Height="80" Canvas.Left="20" Canvas.Top="20"
+                                 Stroke="#888" StrokeThickness="1.5" />
+                        <Line StartPoint="60,60" EndPoint="{Binding OazLineEnd}"
+                              Stroke="#6E8EA8" StrokeThickness="2" />
+                        <Polygon Points="{Binding OazTubePoints}"
+                                 Fill="#6B8CAE" Stroke="#3C5A78" StrokeThickness="1" />
+                    </Canvas>
+                    <Button Content="Phase abgeschlossen"
+                            Command="{Binding CompletePhaseCommand}"
+                            HorizontalAlignment="Stretch" />
+                </StackPanel>
+
+                <!-- Spiegel-Phasen 1–3 -->
+                <StackPanel Spacing="8" IsVisible="{Binding !IsOrientationPhase}">
+                    <!-- Kalibrier-Gate: ohne vollständige Kalibrierung keine Drehempfehlung -->
+                    <Border Padding="8" CornerRadius="4"
+                            Background="#33FF8C42" BorderBrush="#FF8C42" BorderThickness="2"
+                            IsVisible="{Binding ShowCalibrationGate}">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="⚠ Kalibrierung nötig" Foreground="#FF8C42"
+                                       FontWeight="Bold" FontSize="13" />
+                            <TextBlock Text="{Binding CalibrationGateText}" FontSize="12"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <!-- Warnung: Schraube zu weit herausgedreht (Kontaktverlust) -->
+                    <Border Padding="8" CornerRadius="4"
+                            Background="#33D9534F" BorderBrush="#D9534F" BorderThickness="2"
+                            IsVisible="{Binding HasScrewTravelWarning}">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="⚠ Schraube zu weit herausgedreht" Foreground="#E8857F"
+                                       FontWeight="Bold" FontSize="13" />
+                            <TextBlock Text="{Binding ScrewTravelWarning}" FontSize="12"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <Border Padding="6,4,6,4" CornerRadius="3"
+                            BorderBrush="#2E8B57" BorderThickness="2"
+                            IsVisible="{Binding ActivePhaseUnderTolerance}">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="✓ unter Toleranz" Foreground="#2E8B57" FontWeight="Bold" />
+                            <TextBlock Text="{Binding ActivePhaseStatusText}" FontSize="11" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Text="{Binding ActivePhaseStatusText}" FontSize="11" TextWrapping="Wrap"
+                               IsVisible="{Binding !ActivePhaseUnderTolerance}" />
+                    <!-- Veraltete-Anzeige-Hinweis: die gezeigte Empfehlung beruht noch auf
+                         gespeicherten (nicht auf dem aktuellen Bild neu gemessenen) Markierungen. -->
+                    <TextBlock Text="{Binding StaleRecommendationHint}"
+                               IsVisible="{Binding ShowStaleRecommendationHint}"
+                               Foreground="#FF8C42" FontSize="11" TextWrapping="Wrap" />
+                    <Button Content="Markierung aktualisieren"
+                            Command="{Binding RefreshActiveMarkingCommand}"
+                            HorizontalAlignment="Stretch">
+                        <Button.IsEnabled>
+                            <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                <Binding Path="IsScrewCalibrationIdle" />
+                                <Binding Path="!IsBusy" />
+                            </MultiBinding>
+                        </Button.IsEnabled>
+                    </Button>
+                    <Button Content="{Binding CompletePhaseButtonText}"
+                            Classes.phase-complete-warn="{Binding IsPhaseCompleteArmed}"
+                            Command="{Binding CompletePhaseCommand}"
+                            HorizontalAlignment="Stretch"
+                            IsEnabled="{Binding IsScrewCalibrationIdle}" />
+
+                    <Separator />
+
+                    <!-- Phasen-Diagramm: bleibt auch während der Kalibrierung sichtbar,
+                         damit die hervorgehobene (gerade kalibrierte) Schraube erkennbar ist. -->
+                        <!-- Phase 2 (Fangspiegel zentrieren): Spinnen-Rotation relativ zum OAZ.
+                             OAZ-Rohr fix (ohne Markerlinie), Kreuz = Spinne, per Regler verdrehbar. -->
+                        <Border BorderBrush="#555" BorderThickness="1" CornerRadius="4"
+                                Padding="6" Background="#22000000"
+                                IsVisible="{Binding IsSpiderCenteringPhase}">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="Spinne relativ zum OAZ ausrichten (0° = nicht verdreht):"
+                                           FontSize="11" TextWrapping="Wrap" Foreground="#CCC" />
+                                <TextBlock Text="{Binding SpiderOffsetText}" FontWeight="Bold" />
+                                <Slider Minimum="0" Maximum="90" TickFrequency="15"
+                                        Value="{Binding SpiderAngleDeg}"
+                                        ToolTip.Tip="Verdreht das Spinnenkreuz relativ zum OAZ (0–90°, danach 90°-symmetrisch)." />
+                                <Canvas Width="120" Height="120" HorizontalAlignment="Center">
+                                    <Ellipse Width="80" Height="80" Canvas.Left="20" Canvas.Top="20"
+                                             Stroke="#888" StrokeThickness="1.5" />
+                                    <!-- OAZ-Rohr fix an der eingestellten Position, ohne Markerlinie -->
+                                    <Polygon Points="{Binding OazTubePoints}"
+                                             Fill="#6B8CAE" Stroke="#3C5A78" StrokeThickness="1" />
+                                    <!-- Spinnenkreuz (4 Speichen), per Versatz-Regler rotiert -->
+                                    <Line StartPoint="{Binding SpiderArm1A}" EndPoint="{Binding SpiderArm1B}"
+                                          Stroke="#C8B070" StrokeThickness="2" />
+                                    <Line StartPoint="{Binding SpiderArm2A}" EndPoint="{Binding SpiderArm2B}"
+                                          Stroke="#C8B070" StrokeThickness="2" />
+                                    <!-- Drehpfeile (Richtung + Bogenlänge = nötige Umdrehung) -->
+                                    <Path Data="{Binding ActivePhaseArrowsGeometry}"
+                                          Stroke="#FF8C42" StrokeThickness="2.5"
+                                          StrokeLineCap="Round" StrokeJoin="Round" />
+                                    <!-- Kalibrier-Vorschaupfeil (gewählte Drehrichtung) -->
+                                    <Path Data="{Binding CalibrationArrowGeometry}"
+                                          Stroke="#FFD000" StrokeThickness="2.5"
+                                          StrokeLineCap="Round" StrokeJoin="Round" />
+                                    <!-- Schrauben-Marker an den Speichen-Enden -->
+                                    <ItemsControl ItemsSource="{Binding ActivePhaseScrewMarkers}"
+                                                  Width="120" Height="120"
+                                                  ItemTemplate="{StaticResource ScrewMarkerTemplate}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.Styles>
+                                            <Style Selector="ContentPresenter" x:DataType="vm:ScrewMarkerVm">
+                                                <Setter Property="Canvas.Left" Value="{Binding Left}" />
+                                                <Setter Property="Canvas.Top" Value="{Binding Top}" />
+                                            </Style>
+                                        </ItemsControl.Styles>
+                                    </ItemsControl>
+                                    <!-- Drehzahl-Texte neben den Pfeilen -->
+                                    <ItemsControl ItemsSource="{Binding ActivePhaseTurnLabels}"
+                                                  Width="120" Height="120"
+                                                  ItemTemplate="{StaticResource TurnLabelTemplate}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.Styles>
+                                            <Style Selector="ContentPresenter" x:DataType="vm:TurnLabelVm">
+                                                <Setter Property="Canvas.Left" Value="{Binding Left}" />
+                                                <Setter Property="Canvas.Top" Value="{Binding Top}" />
+                                            </Style>
+                                        </ItemsControl.Styles>
+                                    </ItemsControl>
+                                </Canvas>
+                            </StackPanel>
+                        </Border>
+                        <!-- Phasen 3/4: generische Skizze, um die OAZ-Position rotiert -->
+                        <Border BorderBrush="#555" BorderThickness="1" CornerRadius="4"
+                                Padding="6" Background="#22000000"
+                                IsVisible="{Binding !IsSpiderCenteringPhase}">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="{Binding OazClockText}" FontSize="10" Foreground="#888" />
+                                <!-- echtes Bild, um OAZ-Winkel rotiert (LayoutTransformControl,
+                                     hält den Inhalt zentriert), darüber die Schrauben-Marker. -->
+                                <Grid HorizontalAlignment="Center"
+                                      IsVisible="{Binding HasActivePhaseSketch}">
+                                    <LayoutTransformControl HorizontalAlignment="Center"
+                                                            VerticalAlignment="Center">
+                                        <LayoutTransformControl.LayoutTransform>
+                                            <RotateTransform Angle="{Binding OazAngleDeg}" />
+                                        </LayoutTransformControl.LayoutTransform>
+                                        <Image Source="{Binding ActivePhaseSketch}"
+                                               Width="200" Height="200" Stretch="Uniform" />
+                                    </LayoutTransformControl>
+                                    <!-- Drehpfeile (Richtung + Bogenlänge = nötige Umdrehung) -->
+                                    <Canvas Width="200" Height="200"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <Path Data="{Binding ActivePhaseArrowsGeometry}"
+                                              Stroke="#FF8C42" StrokeThickness="2.5"
+                                              StrokeLineCap="Round" StrokeJoin="Round" />
+                                        <!-- Kalibrier-Vorschaupfeil (gewählte Drehrichtung) -->
+                                        <Path Data="{Binding CalibrationArrowGeometry}"
+                                              Stroke="#FFD000" StrokeThickness="2.5"
+                                              StrokeLineCap="Round" StrokeJoin="Round" />
+                                    </Canvas>
+                                    <ItemsControl ItemsSource="{Binding ActivePhaseScrewMarkers}"
+                                                  Width="200" Height="200"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  ItemTemplate="{StaticResource ScrewMarkerTemplate}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.Styles>
+                                            <Style Selector="ContentPresenter" x:DataType="vm:ScrewMarkerVm">
+                                                <Setter Property="Canvas.Left" Value="{Binding Left}" />
+                                                <Setter Property="Canvas.Top" Value="{Binding Top}" />
+                                            </Style>
+                                        </ItemsControl.Styles>
+                                    </ItemsControl>
+                                    <!-- Drehzahl-Texte neben den Pfeilen -->
+                                    <ItemsControl ItemsSource="{Binding ActivePhaseTurnLabels}"
+                                                  Width="200" Height="200"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  ItemTemplate="{StaticResource TurnLabelTemplate}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.Styles>
+                                            <Style Selector="ContentPresenter" x:DataType="vm:TurnLabelVm">
+                                                <Setter Property="Canvas.Left" Value="{Binding Left}" />
+                                                <Setter Property="Canvas.Top" Value="{Binding Top}" />
+                                            </Style>
+                                        </ItemsControl.Styles>
+                                    </ItemsControl>
+                                </Grid>
+                                <!-- Platzhalter-Hinweis, falls noch kein Bild vorhanden -->
+                                <Border BorderBrush="#666" BorderThickness="1"
+                                        CornerRadius="3" Padding="8"
+                                        IsVisible="{Binding !HasActivePhaseSketch}">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="🖉 Skizze-Platzhalter"
+                                                   FontWeight="Bold" FontSize="11" Foreground="#AAA"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding ActivePhaseSketchHint}"
+                                                   FontSize="11" TextWrapping="Wrap" Foreground="#AAA" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                    <!-- Schrauben-Liste: weicht während der Kalibrierung dem Dialog -->
+                    <StackPanel Spacing="6" IsVisible="{Binding IsScrewCalibrationIdle}">
+                        <TextBlock Text="Schrauben dieser Phase" FontWeight="Bold" />
+                        <ItemsControl ItemsSource="{Binding ActivePhaseScrewVms}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ScrewViewModel">
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,2">
+                                        <StackPanel Grid.Column="0" Spacing="1">
+                                            <TextBlock Text="{Binding DisplayName}" FontSize="12" />
+                                            <TextBlock Text="{Binding RecommendedTurnsText}" FontSize="11"
+                                                       FontWeight="Bold" Foreground="#1E90FF"
+                                                       IsVisible="{Binding HasRecommendation}" />
+                                            <TextBlock Text="{Binding StatusText}" FontSize="10" Foreground="#888" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="{Binding CalibrateButtonText}"
+                                                Command="{Binding StartCalibrationCommand}"
+                                                FontSize="11" Padding="6,2,6,2" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!-- Aktive Kalibrierungs-Sequenz -->
+                    <Border Padding="6,6,6,6" CornerRadius="4"
+                            Background="#1A6495ED"
+                            BorderBrush="#6495ED" BorderThickness="1"
+                            IsVisible="{Binding IsScrewCalibrationActive}">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="{Binding ScrewCalibrationInstruction}"
+                                       TextWrapping="Wrap" />
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Drehrichtung:" />
+                                <RadioButton GroupName="ScrewDir"
+                                             IsChecked="{Binding IsScrewCwSelected}"
+                                             Content="im Uhrzeigersinn" />
+                                <RadioButton GroupName="ScrewDir"
+                                             IsChecked="{Binding IsScrewCcwSelected}"
+                                             Content="gegen den Uhrzeigersinn" />
+                                <TextBlock Text="Tipp: Festgezogene Schrauben lassen sich zuerst nur gegen den Uhrzeigersinn (lösen) drehen."
+                                           FontSize="10" Foreground="#888" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="Gedreht (Umdrehungen):" />
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBox Text="{Binding CalibrationTurnsText}" Width="56" FontSize="12"
+                                             ToolTip.Tip="Tatsächlich gedrehte Menge in Umdrehungen (z. B. 0,25 = ¼). Bei zu kleinem Effekt weiter drehen und die Gesamtmenge eintragen." />
+                                    <Button Content="¼" FontSize="11" Padding="6,2,6,2"
+                                            Command="{Binding SetCalibrationTurnsCommand}" CommandParameter="0,25" />
+                                    <Button Content="½" FontSize="11" Padding="6,2,6,2"
+                                            Command="{Binding SetCalibrationTurnsCommand}" CommandParameter="0,5" />
+                                    <Button Content="1" FontSize="11" Padding="6,2,6,2"
+                                            Command="{Binding SetCalibrationTurnsCommand}" CommandParameter="1" />
+                                </StackPanel>
+                                <TextBlock Text="⚠ Ungültige Drehmenge — z. B. 0,25 / 0,5 / 1"
+                                           FontSize="10" Foreground="#FF8C42"
+                                           IsVisible="{Binding CalibrationTurnsInvalid}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Button Content="Bestätigen"
+                                        Command="{Binding ConfirmScrewCalibrationCommand}" />
+                                <Button Content="Abbrechen"
+                                        Command="{Binding CancelScrewCalibrationCommand}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Sterntest-Modus (defokussierte Achs-Kollimation, Datei-basiert) -->
+            <StackPanel Spacing="8" IsVisible="{Binding IsStarTestMode}">
+                <TextBlock Text="Sterntest" FontWeight="Bold" />
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="Quelle:" VerticalAlignment="Center" />
+                    <ComboBox ItemsSource="{Binding StarTestSourceOptions}"
+                              SelectedItem="{Binding SelectedStarTestSource}"
+                              MinWidth="150"
+                              ToolTip.Tip="Datei: einzelnes FITS laden.&#10;Ordner: Aufnahme-Software legt Bilder ab, neuestes wird automatisch analysiert.&#10;Alpaca: Kamera über INDIGO/ASCOM-Alpaca.&#10;ASI: ZWO-Kamera direkt per USB." />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="6"
+                            IsVisible="{Binding IsStarFileSource}">
+                    <Button Content="Stern-Bild laden (FITS)…" Click="OnLoadStarTestImage" />
+                    <Button Content="Aktualisieren" Command="{Binding RefreshStarFrameCommand}" />
+                </StackPanel>
+                <StackPanel Spacing="6" IsVisible="{Binding IsStarWatchSource}">
+                    <Button Content="Ordner wählen…" Click="OnPickWatchFolder" HorizontalAlignment="Left" />
+                    <TextBlock Text="{Binding WatchedFolderText}" TextWrapping="Wrap"
+                               FontSize="11" Foreground="#9CC0FF" />
+                </StackPanel>
+                <StackPanel Spacing="4" IsVisible="{Binding IsStarAlpacaSource}">
+                    <!-- Block „Verbindung": alles bis zum Verbinden/Trennen-Button.
+                         Belichtung/Gain gehören zur Aufnahme und stehen DARUNTER,
+                         damit man beim Einstellen nicht versehentlich trennt. -->
+                    <TextBlock Text="Verbindung" FontSize="11" Foreground="#888" />
+                    <Button Content="🔍 Im Netzwerk suchen" Command="{Binding DiscoverAlpacaCommand}"
+                            HorizontalAlignment="Stretch" />
+                    <ComboBox ItemsSource="{Binding AlpacaFoundDevices}"
+                              SelectedItem="{Binding SelectedAlpacaFound}"
+                              HorizontalAlignment="Stretch"
+                              PlaceholderText="Gefundene Kamera wählen…" />
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6" RowSpacing="4"
+                          RowDefinitions="Auto,Auto,Auto,Auto">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Host:" VerticalAlignment="Center"
+                                   ToolTip.Tip="Adresse des Alpaca-/INDIGO-Servers im Netzwerk. 'localhost', wenn er auf diesem Rechner läuft." />
+                        <TextBox  Grid.Row="0" Grid.Column="1" Text="{Binding AlpacaHost}"
+                                  PlaceholderText="z. B. localhost oder 192.168.1.50" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Port:" VerticalAlignment="Center"
+                                   ToolTip.Tip="Netzwerk-Port des Servers. INDIGO nutzt 7624, ASCOM-Remote 11111." />
+                        <TextBox  Grid.Row="1" Grid.Column="1" Text="{Binding AlpacaPort}"
+                                  PlaceholderText="INDIGO: 7624 · ASCOM: 11111" />
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Gerät:" VerticalAlignment="Center"
+                                   ToolTip.Tip="Geräte-Nummer der Kamera am Server. Bei nur einer Kamera meist 0." />
+                        <TextBox  Grid.Row="2" Grid.Column="1" Text="{Binding AlpacaDevice}"
+                                  PlaceholderText="meist 0" />
+                    </Grid>
+                    <Button Content="{Binding AlpacaConnectionText}"
+                            Command="{Binding ToggleAlpacaConnectionCommand}"
+                            HorizontalAlignment="Stretch" />
+
+                    <TextBlock Text="Aufnahme" FontSize="11" Foreground="#888" Margin="0,6,0,0" />
+                    <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="6">
+                        <TextBlock Grid.Column="0" Text="Bel. s:" VerticalAlignment="Center"
+                                   ToolTip.Tip="Belichtungszeit in Sekunden. Länger = helleres Bild, aber helle Sterne brennen leichter aus." />
+                        <TextBox  Grid.Column="1" Text="{Binding AlpacaExposure}" />
+                        <TextBlock Grid.Column="2" Text="Gain:" VerticalAlignment="Center"
+                                   ToolTip.Tip="Signalverstärkung der Kamera. Höher = helleres, aber rauschigeres Bild." />
+                        <TextBox  Grid.Column="3" Text="{Binding AlpacaGain}" />
+                    </Grid>
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+                        <Button Grid.Column="0" Content="Belichten" Command="{Binding CaptureAlpacaCommand}"
+                                HorizontalAlignment="Stretch"
+                                ToolTip.Tip="Eine einzelne Belichtung aufnehmen." />
+                        <Button Grid.Column="1" Content="{Binding StarLoopButtonText}"
+                                Command="{Binding ToggleAlpacaLoopCommand}"
+                                HorizontalAlignment="Stretch"
+                                ToolTip.Tip="Kontinuierlich belichten: nach jedem Bild startet automatisch das nächste — praktisch beim Schrauben-Drehen. Belichtung/Gain wirken ab dem nächsten Bild." />
+                    </Grid>
+                    <TextBlock Text="{Binding StarLoopInfoText}" FontSize="11" Foreground="#9CC0FF"
+                               TextWrapping="Wrap" IsVisible="{Binding IsStarLoopRunning}" />
+
+                    <!-- Fokuser am selben Alpaca-Server: defokussieren für den Donut
+                         und zurück zum Fokus, ohne Fremdsoftware. -->
+                    <TextBlock Text="Fokuser" FontSize="11" Foreground="#888" Margin="0,6,0,0" />
+                    <Grid ColumnDefinitions="Auto,60,*" ColumnSpacing="6">
+                        <TextBlock Grid.Column="0" Text="Gerät:" VerticalAlignment="Center"
+                                   ToolTip.Tip="Geräte-Nummer des Fokusers am Alpaca-Server (eigene Zählung pro Gerätetyp, meist 0). Host/Port kommen von oben." />
+                        <TextBox  Grid.Column="1" Text="{Binding FocuserDevice}" />
+                        <Button   Grid.Column="2" Content="{Binding FocuserConnectionText}"
+                                  Command="{Binding ToggleFocuserConnectionCommand}"
+                                  HorizontalAlignment="Stretch" />
+                    </Grid>
+                    <StackPanel Spacing="4" IsVisible="{Binding IsFocuserConnected}">
+                        <TextBlock Text="{Binding FocuserPositionText}" FontWeight="Bold" FontSize="13" />
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="Schritt:" VerticalAlignment="Center" FontSize="12" />
+                            <TextBox Text="{Binding FocuserStepSize}" Width="60" FontSize="12" />
+                            <Button Content="10" FontSize="11" Padding="6,2,6,2"
+                                    Command="{Binding SetFocuserStepCommand}" CommandParameter="10" />
+                            <Button Content="100" FontSize="11" Padding="6,2,6,2"
+                                    Command="{Binding SetFocuserStepCommand}" CommandParameter="100" />
+                            <Button Content="1000" FontSize="11" Padding="6,2,6,2"
+                                    Command="{Binding SetFocuserStepCommand}" CommandParameter="1000" />
+                        </StackPanel>
+                        <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="6">
+                            <Button Grid.Column="0" Content="− rein" Command="{Binding FocuserInCommand}"
+                                    HorizontalAlignment="Stretch"
+                                    ToolTip.Tip="Fährt um die Schrittweite Richtung Tubus (Position wird kleiner)." />
+                            <Button Grid.Column="1" Content="+ raus" Command="{Binding FocuserOutCommand}"
+                                    HorizontalAlignment="Stretch"
+                                    ToolTip.Tip="Fährt um die Schrittweite nach außen (Position wird größer)." />
+                            <Button Grid.Column="2" Content="■ Stop" Command="{Binding FocuserHaltCommand}"
+                                    ToolTip.Tip="Stoppt eine laufende Fokuser-Fahrt sofort." />
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+                            <TextBlock Grid.Column="0" Text="Ziel:" VerticalAlignment="Center" FontSize="12" />
+                            <TextBox  Grid.Column="1" Text="{Binding FocuserTargetText}"
+                                      PlaceholderText="Zielposition in Schritten" FontSize="12" />
+                            <Button   Grid.Column="2" Content="Fahren" Command="{Binding FocuserGoToCommand}" />
+                        </Grid>
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Spacing="4" IsVisible="{Binding IsStarAsiSource}">
+                    <TextBlock Text="Verbindung" FontSize="11" Foreground="#888" />
+                    <Button Content="🔍 ASI-Kamera suchen (USB)" Command="{Binding DiscoverAsiCommand}"
+                            HorizontalAlignment="Stretch" />
+                    <ComboBox ItemsSource="{Binding AsiFoundDevices}"
+                              SelectedItem="{Binding SelectedAsiFound}"
+                              HorizontalAlignment="Stretch"
+                              PlaceholderText="Gefundene Kamera wählen…" />
+                    <Button Content="{Binding AsiConnectionText}"
+                            Command="{Binding ToggleAsiConnectionCommand}"
+                            HorizontalAlignment="Stretch" />
+
+                    <TextBlock Text="Aufnahme" FontSize="11" Foreground="#888" Margin="0,6,0,0" />
+                    <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="6">
+                        <TextBlock Grid.Column="0" Text="Bel. s:" VerticalAlignment="Center"
+                                   ToolTip.Tip="Belichtungszeit in Sekunden. Länger = helleres Bild, aber helle Sterne brennen leichter aus." />
+                        <TextBox  Grid.Column="1" Text="{Binding AsiExposure}" />
+                        <TextBlock Grid.Column="2" Text="Gain:" VerticalAlignment="Center"
+                                   ToolTip.Tip="Signalverstärkung der Kamera. Höher = helleres, aber rauschigeres Bild." />
+                        <TextBox  Grid.Column="3" Text="{Binding AsiGain}" />
+                    </Grid>
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+                        <Button Grid.Column="0" Content="Belichten" Command="{Binding CaptureAsiCommand}"
+                                HorizontalAlignment="Stretch"
+                                ToolTip.Tip="Eine einzelne Belichtung aufnehmen." />
+                        <Button Grid.Column="1" Content="{Binding StarLoopButtonText}"
+                                Command="{Binding ToggleAsiLoopCommand}"
+                                HorizontalAlignment="Stretch"
+                                ToolTip.Tip="Kontinuierlich belichten: nach jedem Bild startet automatisch das nächste — praktisch beim Schrauben-Drehen. Belichtung/Gain wirken ab dem nächsten Bild." />
+                    </Grid>
+                    <TextBlock Text="{Binding StarLoopInfoText}" FontSize="11" Foreground="#9CC0FF"
+                               TextWrapping="Wrap" IsVisible="{Binding IsStarLoopRunning}" />
+                </StackPanel>
+                <TextBlock Text="{Binding StarTestQualityHint}" TextWrapping="Wrap"
+                           FontSize="12" Foreground="#9CC0FF" />
+                <Border Background="#11FFFFFF" CornerRadius="4" Padding="8"
+                        IsVisible="{Binding StarTestHasDonut}">
+                    <StackPanel Spacing="4">
+                        <!-- Quellen-Kennzeichnung: welches Bild wurde analysiert, wann. -->
+                        <TextBlock Text="{Binding StarFrameSourceText}" FontSize="11" Foreground="#AAA" />
+                        <TextBlock Text="{Binding StarTestMetricText}" FontWeight="Bold" FontSize="15" />
+                        <TextBlock Text="{Binding StarTestOffsetText}" FontSize="13" />
+                        <TextBlock Text="{Binding StarTestGeometryText}" FontSize="11" Foreground="#AAA"
+                                   ToolTip.Tip="Obstruktion = Verhältnis innerer Fangspiegel-Schatten zur Außenscheibe. Beim 150PDS physisch ca. 0,3; dient als Plausibilitätsmaß, ob ein echter Donut erkannt wurde." />
+                    </StackPanel>
+                </Border>
+
+                <!-- Regressions-Meldung: ein einmal erreichtes Ziel wurde durch eine
+                     neue Messung wieder verlassen. -->
+                <Border Background="#33FF8C42" BorderBrush="#FF8C42" BorderThickness="2"
+                        CornerRadius="4" Padding="8"
+                        IsVisible="{Binding StarCollimationLost}">
+                    <TextBlock Text="⚠ Zuvor erreichtes Ziel wieder verlassen — den Empfehlungen folgen und mit einem neuen Bild prüfen."
+                               Foreground="#FF8C42" FontWeight="Bold" FontSize="12" TextWrapping="Wrap" />
+                </Border>
+
+                <!-- Abschluss-Führung: Ziel erreicht → Arretierung + Gegenkontrolle -->
+                <Border Background="#1A3CB371" BorderBrush="#3CB371" BorderThickness="1"
+                        CornerRadius="4" Padding="8"
+                        IsVisible="{Binding IsStarCollimationDone}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="✅ Kollimation im Ziel — letzter Schritt:" FontWeight="Bold"
+                                   Foreground="#3CB371" />
+                        <TextBlock TextWrapping="Wrap" FontSize="12"
+                                   Text="1. Arretierschrauben vorsichtig und gleichmäßig anziehen — nicht überdrehen, das verzieht die Justage wieder.&#10;2. Danach ein neues Bild aufnehmen (Loop läuft weiter) und prüfen, dass die Empfehlungen bei ✓ bleiben.&#10;3. Falls sich etwas verzogen hat: minimal nachkorrigieren." />
+                    </StackPanel>
+                </Border>
+                <TextBlock FontSize="11" Foreground="#888" TextWrapping="Wrap"
+                           Text="Grün = Scheibchen (SOLL), Rot = Obstruktion (IST), Gelb = Versatz zwischen beiden. Je kleiner der gelbe Versatz, desto besser kollimiert.&#10;Anleitung: Stern mittig stellen und mittel defokussieren, bis ein Donut sichtbar ist. Dann je ein Bild vor dem Fokus (intrafokal) und nach dem Fokus (extrafokal) bei gleichem Defokus vergleichen — bei guter Kollimation sitzt die Obstruktion in beiden zentriert." />
+
+                <!-- Hauptspiegel-Schrauben: Kalibrierung + Drehempfehlung -->
+                <TextBlock Text="Hauptspiegel-Schrauben" FontWeight="Bold" Margin="0,6,0,0" />
+
+                <!-- Schrauben-Entscheidung: eine vollständig kalibrierte Menge wird
+                     beim Betreten des Sterntests weiterhin still übernommen — der
+                     Banner macht die Entscheidung nur sichtbar. -->
+                <Border Background="#1A6495ED" BorderBrush="#6495ED" BorderThickness="1"
+                        CornerRadius="4" Padding="8"
+                        IsVisible="{Binding ShowStarScrewDecision}">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="{Binding StarScrewDecisionText}" FontSize="12" TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button Content="Verwenden" Command="{Binding UseExistingStarScrewCalibrationCommand}"
+                                    HorizontalAlignment="Stretch" />
+                            <Button Content="Neu kalibrieren" Command="{Binding RecalibrateStarScrewsCommand}"
+                                    HorizontalAlignment="Stretch" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="{Binding StarScrewGateText}" TextWrapping="Wrap"
+                           FontSize="11" Foreground="#E0A030"
+                           IsVisible="{Binding ShowStarScrewGate}" />
+                <ItemsControl ItemsSource="{Binding StarScrewVms}" IsVisible="{Binding IsStarScrewIdle}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="#11FFFFFF" CornerRadius="4" Padding="6" Margin="0,0,0,4">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding RecommendedTurnsText}" FontSize="14"
+                                               IsVisible="{Binding HasRecommendation}" />
+                                    <TextBlock Text="{Binding StatusText}" FontSize="10" Foreground="#888" />
+                                    <Button Content="{Binding CalibrateButtonText}"
+                                            Command="{Binding StartCalibrationCommand}"
+                                            HorizontalAlignment="Left" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- HS-Diagramm: Skizze + Drehpfeile (wenn alle 3 kalibriert) -->
+                <Grid HorizontalAlignment="Center" Margin="0,4,0,0"
+                      IsVisible="{Binding ShowStarDiagram}">
+                    <Image Source="{Binding StarSketch}" Width="200" Height="200" Stretch="Uniform"
+                           IsVisible="{Binding HasStarSketch}" />
+                    <Ellipse Width="180" Height="180" Stroke="#666" StrokeThickness="1"
+                             HorizontalAlignment="Center" VerticalAlignment="Center"
+                             IsVisible="{Binding !HasStarSketch}" />
+                    <Canvas Width="200" Height="200"
+                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Path Data="{Binding StarArrowsGeometry}"
+                              Stroke="#FF8C42" StrokeThickness="2.5"
+                              StrokeLineCap="Round" StrokeJoin="Round" />
+                    </Canvas>
+                    <ItemsControl ItemsSource="{Binding StarScrewMarkers}"
+                                  Width="200" Height="200"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  ItemTemplate="{StaticResource ScrewMarkerTemplate}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.Styles>
+                            <Style Selector="ContentPresenter" x:DataType="vm:ScrewMarkerVm">
+                                <Setter Property="Canvas.Left" Value="{Binding Left}" />
+                                <Setter Property="Canvas.Top" Value="{Binding Top}" />
+                            </Style>
+                        </ItemsControl.Styles>
+                    </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding StarTurnLabels}"
+                                  Width="200" Height="200"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  ItemTemplate="{StaticResource TurnLabelTemplate}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.Styles>
+                            <Style Selector="ContentPresenter" x:DataType="vm:TurnLabelVm">
+                                <Setter Property="Canvas.Left" Value="{Binding Left}" />
+                                <Setter Property="Canvas.Top" Value="{Binding Top}" />
+                            </Style>
+                        </ItemsControl.Styles>
+                    </ItemsControl>
+                </Grid>
+
+                <!-- Kalibrier-Box: nach dem Drehen ein neues Bild laden -> misst Effekt -->
+                <Border Background="#1A6495ED" BorderBrush="#6495ED" BorderThickness="1"
+                        CornerRadius="4" Padding="8"
+                        IsVisible="{Binding IsStarScrewCalibrating}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="{Binding StarCalibrationInstruction}" TextWrapping="Wrap" FontSize="12" />
+                        <RadioButton GroupName="StarDir" Content="im Uhrzeigersinn"
+                                     IsChecked="{Binding IsScrewCwSelected}" />
+                        <RadioButton GroupName="StarDir" Content="gegen den Uhrzeigersinn"
+                                     IsChecked="{Binding IsScrewCcwSelected}" />
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="Gedreht:" VerticalAlignment="Center" FontSize="12" />
+                            <TextBox Text="{Binding CalibrationTurnsText}" Width="56" FontSize="12"
+                                     ToolTip.Tip="Tatsächlich gedrehte Menge in Umdrehungen (z. B. 0,25 = ¼). Bei zu kleinem Versatz weiter drehen und die Gesamtmenge eintragen." />
+                            <Button Content="¼" FontSize="11" Padding="6,2,6,2"
+                                    Command="{Binding SetCalibrationTurnsCommand}" CommandParameter="0,25" />
+                            <Button Content="½" FontSize="11" Padding="6,2,6,2"
+                                    Command="{Binding SetCalibrationTurnsCommand}" CommandParameter="0,5" />
+                            <Button Content="1" FontSize="11" Padding="6,2,6,2"
+                                    Command="{Binding SetCalibrationTurnsCommand}" CommandParameter="1" />
+                        </StackPanel>
+                        <TextBlock Text="⚠ Ungültige Drehmenge — z. B. 0,25 / 0,5 / 1"
+                                   FontSize="10" Foreground="#FF8C42"
+                                   IsVisible="{Binding CalibrationTurnsInvalid}" />
+                        <TextBlock Text="{Binding StarCalibDeltaText}" FontSize="13" FontWeight="Bold"
+                                   Foreground="#FFD000" TextWrapping="Wrap" />
+                        <TextBlock Text="Nach dem Drehen ein neues Bild laden/aktualisieren — bei ausreichendem Versatz schließt das die Kalibrierung automatisch ab."
+                                   FontSize="10" Foreground="#888" TextWrapping="Wrap" />
+                        <Button Content="Abbrechen" Command="{Binding CancelStarScrewCalibrationCommand}"
+                                HorizontalAlignment="Left" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
+    </Grid>
+</Window>

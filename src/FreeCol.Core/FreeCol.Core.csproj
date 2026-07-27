@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260526" />
+    <!-- Native OpenCV-Runtime nach ZIEL-RID wählen, damit Cross-Publish funktioniert
+         (z. B. `dotnet publish -r win-x64` von Linux zieht die win-Runtime). Ohne RID
+         (lokaler Build/Test) auf die Host-OS zurückfallen. -->
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260302"
+                      Condition="$(RuntimeIdentifier.StartsWith('win')) or ('$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows')))" />
+    <PackageReference Include="OpenCvSharp4.official.runtime.linux-x64" Version="4.13.0.20260526"
+                      Condition="$(RuntimeIdentifier.StartsWith('linux')) or ('$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Linux')))" />
+    <!-- macOS: nur Apple Silicon (osx-arm64). Die Native ist älter als die managed
+         4.13.0 (offiziell osx_arm64 = 4.8.1-rc) → Versions-Mismatch MUSS auf dem M1
+         per Smoke-Test geprüft werden (die App nutzt nur stabile Core-APIs:
+         VideoCapture/threshold/contours/HoughCircles/moments – laufen meist trotz
+         Versionslücke). Nur bei osx-arm64-RID (bzw. No-RID auf Apple Silicon)
+         referenziert → Windows/Linux unverändert. Intel-Macs werden nicht unterstützt. -->
+    <PackageReference Include="OpenCvSharp4.runtime.osx_arm64" Version="4.8.1-rc"
+                      Condition="$(RuntimeIdentifier) == 'osx-arm64' or ('$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('OSX')))" />
+  </ItemGroup>
+
+</Project>

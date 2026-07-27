@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="380" viewBox="0 0 720 380">
+  <rect width="720" height="380" fill="#10161a"/>
+  <!-- links: dezentriert -->
+  <g>
+    <circle cx="180" cy="165" r="110" fill="none" stroke="#3CB371" stroke-width="4"/>
+    <circle cx="214" cy="192" r="42" fill="none" stroke="#D9534F" stroke-width="4"/>
+    <line x1="180" y1="165" x2="214" y2="192" stroke="#E8C547" stroke-width="3"/>
+    <circle cx="180" cy="165" r="4" fill="#3CB371"/>
+    <circle cx="214" cy="192" r="4" fill="#D9534F"/>
+    <text x="180" y="330" fill="#dddddd" font-family="sans-serif" font-size="22" text-anchor="middle">dezentriert — justieren</text>
+    <text x="180" y="356" fill="#888888" font-family="sans-serif" font-size="16" text-anchor="middle">gelber Versatz sichtbar</text>
+  </g>
+  <!-- rechts: zentriert -->
+  <g>
+    <circle cx="540" cy="165" r="110" fill="none" stroke="#3CB371" stroke-width="4"/>
+    <circle cx="540" cy="165" r="42" fill="none" stroke="#D9534F" stroke-width="4"/>
+    <circle cx="540" cy="165" r="4" fill="#cccccc"/>
+    <text x="540" y="330" fill="#dddddd" font-family="sans-serif" font-size="22" text-anchor="middle">zentriert — kollimiert ✓</text>
+    <text x="540" y="356" fill="#888888" font-family="sans-serif" font-size="16" text-anchor="middle">Mittelpunkte fallen zusammen</text>
+  </g>
+  <!-- Legende oben -->
+  <g font-family="sans-serif" font-size="15">
+    <circle cx="24" cy="24" r="7" fill="none" stroke="#3CB371" stroke-width="3"/>
+    <text x="40" y="29" fill="#dddddd">Scheibchen (SOLL)</text>
+    <circle cx="204" cy="24" r="7" fill="none" stroke="#D9534F" stroke-width="3"/>
+    <text x="220" y="29" fill="#dddddd">Obstruktion (IST)</text>
+    <line x1="370" y1="24" x2="392" y2="24" stroke="#E8C547" stroke-width="3"/>
+    <text x="400" y="29" fill="#dddddd">Versatz</text>
+  </g>
+</svg>

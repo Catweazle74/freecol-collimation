@@ -1,0 +1,19 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!-- Produkt-/Versionsmetadaten. Default für lokale Builds; die CI überschreibt
+       Version aus dem Git-Tag (ohne führendes 'v') via -p:Version=…
+       AssemblyVersion/FileVersion leiten sich automatisch aus dem numerischen Teil ab,
+       InformationalVersion trägt die volle SemVer inkl. Prerelease-Suffix. -->
+  <PropertyGroup>
+    <Product>FreeCol</Product>
+    <Company>c-trace</Company>
+    <Version>0.1.0-dev</Version>
+  </PropertyGroup>
+</Project>

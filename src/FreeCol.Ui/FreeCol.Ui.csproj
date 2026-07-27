@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- Der Starter soll FreeCol(.exe) heißen, nicht FreeCol.Ui — zwischen den
+         Runtime-DLLs des self-contained Publish ist er sonst kaum zu finden. -->
+    <AssemblyName>FreeCol</AssemblyName>
+    <RootNamespace>FreeCol.Ui</RootNamespace>
+    <TargetFramework>net10.0</TargetFramework>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.4" />
+    <PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.1">
+      <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
+      <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FreeCol.Core\FreeCol.Core.csproj" />
+    <ProjectReference Include="..\FreeCol.Camera\FreeCol.Camera.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Phasen-Skizzen als eingebettete Avalonia-Ressourcen: die App ist die
+         einzige Quelle (kein Laden aus dem User-Config-Verzeichnis mehr), damit
+         die Skizzen auf jedem Rechner verfügbar sind. -->
+    <AvaloniaResource Include="Assets/**" />
+  </ItemGroup>
+
+</Project>

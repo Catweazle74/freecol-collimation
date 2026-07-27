@@ -1,0 +1,108 @@
+# Baut bei einem Versions-Tag (z. B. v0.3.0-beta) self-contained Betas für alle
+# drei Plattformen (win-x64, linux-x64, osx-arm64), lädt sie in die Generic
+# Package Registry und erzeugt daraus eine GitLab-Release.
+#
+# Voraussetzungen auf gitlab.local:
+#   - Ein registrierter Runner (Docker-Executor) für dieses Projekt.
+#   - Der Runner kann die Images mcr.microsoft.com/dotnet/sdk:10.0 und
+#     registry.gitlab.com/gitlab-org/release-cli:latest ziehen (Internet oder Mirror).
+# Auslösen:  git tag v0.3.0-beta && git push origin v0.3.0-beta
+#
+# Paketformate: Windows als ZIP (dortiges Standardformat), Linux/macOS als tar.gz —
+# tar.gz erhält das Ausführbar-Bit des App-Binaries, ZIP unter Unix nicht zuverlässig.
+
+stages:
+  - build
+  - release
+
+variables:
+  PKG_BASE: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic"
+
+build:
+  stage: build
+  image: mcr.microsoft.com/dotnet/sdk:10.0
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v/'
+  parallel:
+    matrix:
+      - RID: ["win-x64", "linux-x64", "osx-arm64"]
+  script:
+    - apt-get update && apt-get install -y --no-install-recommends zip
+    # Version aus dem Tag ableiten (v0.3.0-beta → 0.3.0-beta).
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - dotnet publish src/FreeCol.Ui -c Release -r "${RID}" --self-contained -o "publish-${RID}" -p:Version="${VERSION}"
+    # Anleitung liegt jedem Paket bei; die Windows-Kamera-Hinweise nur dort.
+    - cp docs/anleitung/freecol-anleitung.pdf "publish-${RID}/" || true
+    - if [ "${RID}" = "win-x64" ]; then cp BETA-WINDOWS.md "publish-${RID}/" || true; fi
+    - |
+      if [ "${RID}" = "win-x64" ]; then
+        PKG_FILE="FreeCol-${CI_COMMIT_TAG}-${RID}.zip"
+        (cd "publish-${RID}" && zip -rq "../${PKG_FILE}" .)
+      else
+        PKG_FILE="FreeCol-${CI_COMMIT_TAG}-${RID}.tar.gz"
+        tar -czf "${PKG_FILE}" -C "publish-${RID}" .
+      fi
+    - |
+      curl --fail --silent --show-error \
+        --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        --upload-file "${PKG_FILE}" \
+        "${PKG_BASE}/freecol-${RID}/${CI_COMMIT_TAG}/${PKG_FILE}"
+    # Anleitung zusätzlich als eigenes Registry-Paket, damit das Release sie
+    # direkt verlinken kann (nur einmal hochladen — der win-x64-Job übernimmt das).
+    - |
+      if [ "${RID}" = "win-x64" ]; then
+        curl --fail --silent --show-error \
+          --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+          --upload-file docs/anleitung/freecol-anleitung.pdf \
+          "${PKG_BASE}/freecol-doku/${CI_COMMIT_TAG}/freecol-anleitung.pdf"
+      fi
+    # 3D-Druckteile (Kalibrier-Hilfen für die Justagekamera) zu einem ZIP
+    # gepackt und ebenfalls als eigenes Registry-Paket hochgeladen — auch das
+    # nur einmal, der win-x64-Job übernimmt das wie schon bei der Anleitung.
+    - |
+      if [ "${RID}" = "win-x64" ]; then
+        PKG_3D_FILE="FreeCol-3D-Druckteile-${CI_COMMIT_TAG}.zip"
+        (cd 3D && zip -rq "../${PKG_3D_FILE}" .)
+        curl --fail --silent --show-error \
+          --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+          --upload-file "${PKG_3D_FILE}" \
+          "${PKG_BASE}/freecol-3d/${CI_COMMIT_TAG}/${PKG_3D_FILE}"
+      fi
+  # Kein artifacts:-Block — die Pakete liegen bereits in der Generic Package Registry
+  # (siehe curl oben) und der Release verlinkt dorthin. Ein zusätzliches Job-Artifact
+  # wäre redundant und sprengt das Größenlimit der Instanz (413 Too Large).
+
+release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs: ["build"]
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v/'
+  script:
+    - echo "Erzeuge Release ${CI_COMMIT_TAG}"
+  release:
+    tag_name: "${CI_COMMIT_TAG}"
+    name: "FreeCol ${CI_COMMIT_TAG}"
+    description: |
+      FreeCol Beta ${CI_COMMIT_TAG} — self-contained für Windows x64 (ZIP),
+      Linux x64 und macOS Apple Silicon (tar.gz). Die Einsteiger-Anleitung
+      (freecol-anleitung.pdf) liegt jedem Paket bei; Windows-Kamera-Hinweise
+      in BETA-WINDOWS.md. macOS nutzt die ältere OpenCV-Native 4.8.1-rc
+      (arm64) — vor dem ersten Einsatz kurz per Sterntest-Datei prüfen.
+    assets:
+      links:
+        - name: "Windows x64 — self-contained ZIP"
+          url: "${PKG_BASE}/freecol-win-x64/${CI_COMMIT_TAG}/FreeCol-${CI_COMMIT_TAG}-win-x64.zip"
+          link_type: "package"
+        - name: "Linux x64 — self-contained tar.gz"
+          url: "${PKG_BASE}/freecol-linux-x64/${CI_COMMIT_TAG}/FreeCol-${CI_COMMIT_TAG}-linux-x64.tar.gz"
+          link_type: "package"
+        - name: "macOS Apple Silicon — self-contained tar.gz"
+          url: "${PKG_BASE}/freecol-osx-arm64/${CI_COMMIT_TAG}/FreeCol-${CI_COMMIT_TAG}-osx-arm64.tar.gz"
+          link_type: "package"
+        - name: "Anleitung (PDF)"
+          url: "${PKG_BASE}/freecol-doku/${CI_COMMIT_TAG}/freecol-anleitung.pdf"
+          link_type: "other"
+        - name: "3D-Druckteile (Kalibrier-Hilfen, ZIP)"
+          url: "${PKG_BASE}/freecol-3d/${CI_COMMIT_TAG}/FreeCol-3D-Druckteile-${CI_COMMIT_TAG}.zip"
+          link_type: "other"

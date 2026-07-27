@@ -1,0 +1,30 @@
+{
+  "OazRand": {
+    "Snapshot": "oazrand.png",
+    "CenterX": 967.03759765625,
+    "CenterY": 529.3545532226562,
+    "RadiusX": 446.91547125232256,
+    "RadiusY": 446.91547125232256
+  },
+  "HauptspiegelReflex": {
+    "Snapshot": "hsr.png",
+    "CenterX": 1005.1732788085938,
+    "CenterY": 514.6914672851562,
+    "RadiusX": 149.97607633585082,
+    "RadiusY": 149.97607633585082
+  },
+  "Sekundaer": {
+    "Snapshot": "sekundaer.png",
+    "CenterX": 976.319091796875,
+    "CenterY": 531.4931030273438,
+    "RadiusX": 191.50715384977167,
+    "RadiusY": 191.50715384977167
+  },
+  "Marker": {
+    "Snapshot": "marker.png",
+    "CenterX": 1004.1886596679688,
+    "CenterY": 517.0471801757812,
+    "RadiusX": 9.134224174159284,
+    "RadiusY": 9.134224174159284
+  }
+}
