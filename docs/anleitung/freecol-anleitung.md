@@ -260,6 +260,13 @@ Der Justage-Modus führt dich durch vier Phasen (0–3). Die Checkbox
 fest zentriert (z. B. CNC-gefertigt) ist — die Kipp-Phasen rücken dann in der
 Nummerierung nach vorn.
 
+**Position der Justagekamera im OAZ**: Der Imagetrain soll möglichst im
+Originalzustand vermessen werden. Setze die OCAL deshalb so ein, dass ihre
+Linse ungefähr den gleichen Abstand hat wie später der Sensor der
+Astrokamera: den OAZ in die übliche Fokusposition fahren und die Restdistanz
+mit Verlängerungshülsen überbrücken — nicht den OAZ weiter herausdrehen. So
+justierst du für genau die Geometrie, mit der du hinterher aufnimmst.
+
 Wie im Markierungs- und Sterntest-Modus zeigt die blaue **„So geht's“-Box**
 unten in der Seitenleiste eine Kurzanleitung — hier jedoch pro Phase eine
 eigene, nummerierte Schritt-für-Schritt-Anleitung (Text siehe jeweilige
