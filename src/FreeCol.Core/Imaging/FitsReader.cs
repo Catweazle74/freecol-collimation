@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using OpenCvSharp;
@@ -23,6 +24,10 @@ public static class FitsReader
 {
     private const int BlockSize = 2880;
     private const int CardSize = 80;
+
+    /// <summary>Keywords für die Fokuser-Position, in Prüfreihenfolge. Beide
+    /// stehen bei den N.I.N.A.-Aufnahmen im Header (FOCPOS zuerst).</summary>
+    private static readonly string[] FocuserPositionKeywords = { "FOCPOS", "FOCUSPOS" };
 
     public static Mat ReadGray16(string path)
     {
@@ -72,6 +77,74 @@ public static class FitsReader
 
         Marshal.Copy(values, 0, mat.Data, (int)count);
         return mat;
+    }
+
+    /// <summary>
+    /// Liest die Fokuser-Position aus dem FITS-Header, ohne die Bilddaten zu
+    /// laden. Prüft die Keywords FOCPOS, dann FOCUSPOS (beide real vorhanden
+    /// in den N.I.N.A.-Aufnahmen). Werte dürfen in Anführungszeichen stehen
+    /// und/oder einen Kommentar nach '/' tragen — beides wird abgestreift.
+    /// </summary>
+    /// <param name="path">Pfad zur FITS-Datei.</param>
+    /// <returns>Fokuser-Position, oder null wenn keines der Keywords
+    /// vorhanden oder der Wert nicht als Ganzzahl parsbar ist.</returns>
+    public static int? GetFocuserPosition(string path)
+    {
+        using var fs = File.OpenRead(path);
+        var rawValues = ReadRawCards(fs, FocuserPositionKeywords);
+        foreach (var key in FocuserPositionKeywords)
+        {
+            if (rawValues.TryGetValue(key, out var raw) && TryParseInt(raw, out var position))
+                return position;
+        }
+        return null;
+    }
+
+    /// <summary>Liest nur die angeforderten Header-Karten roh (als getrimmten,
+    /// unquotierten String ohne Kommentar) — für Metadaten, die nicht in den
+    /// numerischen Header von <see cref="ParseHeader"/> passen (z. B. potenziell
+    /// quotierte Werte). Bricht bei unvollständigem Header ab, statt zu werfen.</summary>
+    private static Dictionary<string, string> ReadRawCards(Stream fs, IReadOnlyCollection<string> keys)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        var block = new byte[BlockSize];
+        bool sawEnd = false;
+
+        while (!sawEnd)
+        {
+            int read = fs.Read(block, 0, BlockSize);
+            if (read < BlockSize) break;
+
+            for (int c = 0; c < BlockSize / CardSize; c++)
+            {
+                var card = Encoding.ASCII.GetString(block, c * CardSize, CardSize);
+                var key = card.Length >= 8 ? card[..8].Trim() : card.Trim();
+                if (key == "END") { sawEnd = true; break; }
+                if (card.Length > 10 && card[8] == '=' && keys.Contains(key))
+                    result[key] = ExtractRawValue(card[10..]);
+            }
+        }
+        return result;
+    }
+
+    /// <summary>Streift Kommentar (nach '/') und einfache Anführungszeichen
+    /// von einem FITS-Kartenwert ab.</summary>
+    private static string ExtractRawValue(string valuePart)
+    {
+        var slash = valuePart.IndexOf('/');
+        if (slash >= 0) valuePart = valuePart[..slash];
+        return valuePart.Trim().Trim('\'').Trim();
+    }
+
+    private static bool TryParseInt(string value, out int result)
+    {
+        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var num))
+        {
+            result = (int)Math.Round(num);
+            return true;
+        }
+        result = 0;
+        return false;
     }
 
     private static int ClampToUShort(double v)

@@ -32,4 +32,13 @@ public sealed record PersistedWindowState(
     // Livebild). Sentinel -1 = noch nicht positioniert — MainWindow setzt
     // dann die Default-Position (unten links).
     double GuideBoxX = -1,
-    double GuideBoxY = -1);
+    double GuideBoxY = -1,
+    // Fokus-Paar (Sterntest): gemerkte Fokus-Mitte + Defokus-Betrag in
+    // Schritten, um reproduzierbar zwischen Intra-/Extrafokal zu wechseln.
+    // Sentinel -1/0 = „nicht gemerkt" (wie bei den übrigen Fokuser-Feldern).
+    int FocusCenterPosition = -1,
+    int DefocusSteps = 0,
+    // Teleskop-Typ (Newton vs. RC/SC, siehe FreeCol.Core.Startest.TelescopeType):
+    // Sentinel null = „nicht gespeichert" — die VM bleibt dann beim Default
+    // Newton (die weitaus häufigere Bauart bei Amateur-Teleskopen).
+    string? TelescopeType = null);

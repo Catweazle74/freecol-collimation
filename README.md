@@ -1,6 +1,6 @@
 # FreeCol
 
-Geführte Newton-Kollimation in zwei Etappen: Grobjustage mit OCAL-Kamera im OAZ, dann Feinjustage am echten Stern mit Astrokamera (defokussierter Sterntest).
+Geführte Newton-Kollimation in zwei Etappen: Grobjustage mit Justagekamera (z. B. OCAL) im OAZ, dann Feinjustage am echten Stern mit Astrokamera (defokussierter Sterntest mit Paar-Messung für Newton-Teleskope).
 
 ![FreeCol-UI: Markierungen mit Workflow-Leiste](docs/anleitung/bilder/uebersicht.png)
 
@@ -9,8 +9,8 @@ Geführte Newton-Kollimation in zwei Etappen: Grobjustage mit OCAL-Kamera im OAZ
 ## Features
 
 **Zwei-Etappen-Workflow**
-- **Etappe 1 — Grobjustage**: OCAL-Justagekamera im Okularauszug, geführte Phasen 0–3 mit Live-Overlay und Drehempfehlungen
-- **Etappe 2 — Feinjustage**: Defokussierter Sterntest (Donut) mit Astrokamera, automatische Versatzmessung und Schrauben-Drehempfehlungen
+- **Etappe 1 — Grobjustage**: Justagekamera (z. B. OCAL) im Okularauszug, geführte Phasen 0–3 mit Live-Overlay und Drehempfehlungen
+- **Etappe 2 — Feinjustage**: Defokussierter Sterntest (Donut) mit Astrokamera, Paar-Messung (Newton) zur Trennung echter vs. systematischer Versätze, Schrauben-Drehempfehlungen
 
 **Automatische Markierungserkennung**
 - Detektiert OAZ-Rand, Hauptspiegel-Marker, Sekundärspiegel und Linsenstrahler im Live-Bild (OpenCV-Pipeline)
@@ -26,6 +26,9 @@ Geführte Newton-Kollimation in zwei Etappen: Grobjustage mit OCAL-Kamera im OAZ
 - Dateibasiert: einzelne FITS/PNG/JPG/TIFF laden
 - Ordner-Überwachung für kontinuierliche Aufnahmen
 - Donut-Versatz automatisch gemessen, Overlay + Zoom
+- **Teleskop-Typ-Unterscheidung**: Newton (Paar-Messung nötig) vs. RC/SC (Einzelbild möglich)
+- **Fokus-Paar**: Fokus-Mitte merken, reproduzierbar fahren, automatisch defokussieren
+- **Paar-Messung**: Live-Messung oder manuelle Zuordnung aus FITS-Dateien, trennt echten Fehler vom systematischen Versatz
 
 **Persistenz pro Kamera**
 - Markierungen, Kalibrierungen und Belichtungs-/Fokus-Werte per Kamera (Seriennummer + Name)
@@ -41,7 +44,7 @@ Geführte Newton-Kollimation in zwei Etappen: Grobjustage mit OCAL-Kamera im OAZ
 | **Linux x64** | Beta | tar.gz, self-contained | V4L2-Backend, Benutzer in Gruppe `video` |
 | **macOS Apple Silicon** | Beta | tar.gz, self-contained | Native ASI-Kamera: `./scripts/setup-asi-macos.sh` (siehe [MACOS-BUILD.md](MACOS-BUILD.md)) |
 
-Alle Plattformen: UVC-Webcams (z. B. OCAL), Alpaca/INDIGO-Netzwerkverbindung, dateibasierte Sterntest-Aufnahmen.
+Alle Plattformen: UVC-Webcams (z. B. Justagekamera wie OCAL), Alpaca/INDIGO-Netzwerkverbindung, dateibasierte Sterntest-Aufnahmen.
 
 ---
 
@@ -49,7 +52,7 @@ Alle Plattformen: UVC-Webcams (z. B. OCAL), Alpaca/INDIGO-Netzwerkverbindung, da
 
 ### Voraussetzungen
 - **.NET 10 SDK** ([Download](https://dotnet.microsoft.com/download/dotnet/10.0))
-- **OCAL-Kamera** oder vergleichbares UVC-Gerät für Grobjustage
+- **Justagekamera** (z. B. OCAL) oder vergleichbares UVC-Gerät für Grobjustage
 - **Astrokamera** für Feinjustage (Alpaca, native ASI, oder Datei/Ordner)
 - **3D-gedruckte Kalibrier-Hilfen** (optional, siehe unten)
 
@@ -75,7 +78,7 @@ dotnet run --project src/FreeCol.Ui
 
 ## Workflow — Die fünf Schritte
 
-1. **Kamera verbinden** — OCAL oder Astrokamera aus der Liste wählen, Auflösung ggf. anpassen, **Start** drücken
+1. **Kamera verbinden** — Justagekamera oder Astrokamera aus der Liste wählen, Auflösung ggf. anpassen, **Start** drücken
 2. **Kalibrieren** (optional) — Kreisfit über 360°-Drehung, bestimmt das optische Zentrum der Justagekamera
 3. **Markieren** — OAZ-Rand, Hauptspiegel-Marker, Sekundärspiegel und Linsenstrahler erkennen oder manuell setzen
 4. **Justage** — Geführte Phasen 0–3 mit Drehempfehlungen für die Justierschrauben
@@ -168,7 +171,7 @@ FreeCol/
 Für eine präzise Kreis-Kalibrierung, die mit einer Regel-Fläche und Pufferbahn gedreht werden kann:
 
 1. **Dateien im [3D/-Ordner](3D/)** — STL für FDM-Druck
-2. **Aufbau**: OCAL mit 100-mm-T2-Verlängerung in die Rotatorauflage, vorn die Kappe, dahinter Lichtquelle
+2. **Aufbau**: Justagekamera (z. B. OCAL) mit 100-mm-T2-Verlängerung in die Rotatorauflage, vorn die Kappe, dahinter Lichtquelle
 3. **Feinheit**: Mit Gummiband gegen versehentliches Abheben während der Rotation sichern
 4. **Druck-Projekt**: [KollimatorDruckprojekt.3mf](3D/KollimatorDruckprojekt.3mf) mit Farbwechsel (transparente Rückwand für Durchleuchtung)
 

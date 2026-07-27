@@ -85,4 +85,61 @@ public class DonutDetectorTests
 
         Assert.Null(new DonutDetector().Detect(img));
     }
+
+    // Dunkelt eine Bildhälfte des Donuts ab (Faktor < 1 auf die vorhandenen
+    // Pixel angewandt) — betrifft nur den hellen Ring, der Himmel bleibt bei 0.
+    private static void DarkenHalf(Mat img, Rect half, double factor)
+    {
+        using var region = new Mat(img, half);
+        Cv2.Multiply(region, new Scalar(factor), region);
+    }
+
+    [Fact]
+    public void Detect_UniformRing_HasNearZeroBrightnessImbalance()
+    {
+        var c = new Point(100, 100);
+        using var img = MakeDonut(200, c, outerR: 60, c, innerR: 24);
+
+        var result = new DonutDetector().Detect(img);
+
+        Assert.NotNull(result);
+        // Toleranz 0.05: Rundungs-/Diskretisierungsrauschen des Rasterbilds
+        // (Pixel-Rundung je Strahl, kein echtes Helligkeits-Gefälle vorhanden).
+        Assert.InRange(result!.BrightnessImbalance, 0, 0.05);
+    }
+
+    [Fact]
+    public void Detect_DarkSectorLeft_PointsDarkDirectionLeft()
+    {
+        var c = new Point(100, 100);
+        using var img = MakeDonut(200, c, outerR: 60, c, innerR: 24);
+        // Linke Bildhälfte (x < 100) auf 60 % abdunkeln.
+        DarkenHalf(img, new Rect(0, 0, 100, 200), 0.6);
+
+        var result = new DonutDetector().Detect(img);
+
+        Assert.NotNull(result);
+        Assert.True(result!.BrightnessImbalance > 0.05,
+            $"BrightnessImbalance war {result.BrightnessImbalance}");
+        Assert.True(result.BrightnessDarkDirection.X < 0,
+            $"BrightnessDarkDirection war {result.BrightnessDarkDirection}");
+    }
+
+    [Fact]
+    public void Detect_DarkSectorTop_PointsDarkDirectionUp()
+    {
+        var c = new Point(100, 100);
+        using var img = MakeDonut(200, c, outerR: 60, c, innerR: 24);
+        // Obere Bildhälfte (y < 100, "oben" im Pixel-Koordinatensystem) abdunkeln.
+        DarkenHalf(img, new Rect(0, 0, 200, 100), 0.6);
+
+        var result = new DonutDetector().Detect(img);
+
+        Assert.NotNull(result);
+        Assert.True(result!.BrightnessImbalance > 0.05,
+            $"BrightnessImbalance war {result.BrightnessImbalance}");
+        // y nach unten ⇒ "oben" ist negatives y.
+        Assert.True(result.BrightnessDarkDirection.Y < 0,
+            $"BrightnessDarkDirection war {result.BrightnessDarkDirection}");
+    }
 }

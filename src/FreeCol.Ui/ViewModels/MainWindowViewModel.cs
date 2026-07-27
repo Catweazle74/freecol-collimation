@@ -14,11 +14,13 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FreeCol.Camera;
 using FreeCol.Core.Calibration;
+using FreeCol.Core.Focuser;
 using FreeCol.Core.Imaging;
 using FreeCol.Core.Justage;
 using FreeCol.Core.Markings;
 using FreeCol.Core.Screws;
 using FreeCol.Core.Settings;
+using FreeCol.Core.Startest;
 using OpenCvSharp;
 
 namespace FreeCol.Ui.ViewModels;
@@ -1036,14 +1038,26 @@ public partial class MainWindowViewModel : ViewModelBase
         + "3. Passt alles, weiter mit ‚4 Justage'.";
 
     // Sterntest-Modus-Anleitung: eigener kurzer Text, analog zur Justage-Führung.
-    private const string StarTestGuideText =
-        "Schritt 5 – Sterntest (Feinjustage am Himmel)\n"
-        + "1. Hellen Stern mittig anfahren und mittel defokussieren, bis ein Donut "
-        + "sichtbar ist.\n"
-        + "2. Unten die Bildquelle wählen (Datei, Ordner-Überwachung oder "
-        + "Live-Kamera) und ein Bild laden.\n"
-        + "3. Schrauben kalibrieren, dann den Drehempfehlungen folgen, bis alle "
-        + "✓ zeigen.";
+    // Newton braucht zusätzlich den Paar-Schritt (intra-/extrafokal) — ohne den
+    // ist der angezeigte Versatz kein Kollimationsmaß (Fangspiegel-Offset).
+    private string StarTestGuideText => TelescopeType == TelescopeType.Newton
+        ? "Schritt 5 – Sterntest (Feinjustage am Himmel)\n"
+          + "1. Hellen Stern mittig anfahren und mittel defokussieren, bis ein Donut "
+          + "sichtbar ist.\n"
+          + "2. Unten die Bildquelle wählen (Datei, Ordner-Überwachung oder "
+          + "Live-Kamera) und ein Bild laden.\n"
+          + "3. Fokus-Mitte merken, dann je eine Aufnahme intra- und extrafokal "
+          + "aufnehmen (Paar-Messung) — erst deren Vergleich zeigt den echten "
+          + "Kollimationsfehler.\n"
+          + "4. Schrauben kalibrieren, dann den Drehempfehlungen folgen, bis alle "
+          + "✓ zeigen."
+        : "Schritt 5 – Sterntest (Feinjustage am Himmel)\n"
+          + "1. Hellen Stern mittig anfahren und mittel defokussieren, bis ein Donut "
+          + "sichtbar ist.\n"
+          + "2. Unten die Bildquelle wählen (Datei, Ordner-Überwachung oder "
+          + "Live-Kamera) und ein Bild laden.\n"
+          + "3. Schrauben kalibrieren, dann den Drehempfehlungen folgen, bis alle "
+          + "✓ zeigen.";
 
     // Modusübergreifende „So geht's"-Anleitung: löst die frühere Justage-only-
     // Bindung ab, damit jeder Modus seine eigene Kurzanleitung zeigt.
@@ -1695,6 +1709,9 @@ public partial class MainWindowViewModel : ViewModelBase
             ShowStarScrewDecision = false;
             _starFrameSourceText = "";
             StarCollimationLost = false;
+            _pairSlotA = null;
+            _pairSlotB = null;
+            PairMeasurementResultText = "";
         }
         else
         {
@@ -3611,6 +3628,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsStarWatchSource))]
     [NotifyPropertyChangedFor(nameof(IsStarAlpacaSource))]
     [NotifyPropertyChangedFor(nameof(IsStarAsiSource))]
+    [NotifyPropertyChangedFor(nameof(IsLiveStarTestSource))]
     [NotifyPropertyChangedFor(nameof(StarTestQualityHint))]
     private string _selectedStarTestSource = "Datei (FITS)";
 
@@ -3618,6 +3636,12 @@ public partial class MainWindowViewModel : ViewModelBase
     public bool IsStarWatchSource => SelectedStarTestSource?.StartsWith("Ordner") ?? false;
     public bool IsStarAlpacaSource => SelectedStarTestSource?.Contains("Alpaca") ?? false;
     public bool IsStarAsiSource => SelectedStarTestSource?.Contains("ASI") ?? false;
+
+    // Der Fokuser hängt am Alpaca-/INDIGO-Server, unabhängig davon, ob die
+    // Sterntest-Bilder selbst über Alpaca oder nativ über ASI kommen (siehe
+    // MainWindow.axaml, Fokuser-Panel) — deshalb eigene Sichtbarkeits-
+    // Bedingung statt an eine einzelne Quelle gekoppelt.
+    public bool IsLiveStarTestSource => IsStarAlpacaSource || IsStarAsiSource;
 
     partial void OnSelectedStarTestSourceChanged(string value)
     {
@@ -4027,12 +4051,21 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(FocuserOutCommand))]
     [NotifyCanExecuteChangedFor(nameof(FocuserGoToCommand))]
     [NotifyCanExecuteChangedFor(nameof(FocuserHaltCommand))]
+    [NotifyCanExecuteChangedFor(nameof(MarkFocusCenterCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GoToIntraFocusCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GoToExtraFocusCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AutoFindDefocusCommand))]
+    [NotifyCanExecuteChangedFor(nameof(MeasurePairCommand))]
     private bool _isFocuserConnected;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(FocuserInCommand))]
     [NotifyCanExecuteChangedFor(nameof(FocuserOutCommand))]
     [NotifyCanExecuteChangedFor(nameof(FocuserGoToCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GoToIntraFocusCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GoToExtraFocusCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AutoFindDefocusCommand))]
+    [NotifyCanExecuteChangedFor(nameof(MeasurePairCommand))]
     private bool _isFocuserMoving;
 
     [ObservableProperty]
@@ -4042,7 +4075,9 @@ public partial class MainWindowViewModel : ViewModelBase
     public string FocuserConnectionText => IsFocuserConnected ? "Fokuser trennen" : "Fokuser verbinden";
 
     public bool CanToggleFocuser => !IsFocuserBusy;
-    public bool CanMoveFocuser => IsFocuserConnected && !IsFocuserMoving;
+    // Während der automatischen Defokus-Suche fährt der Fokuser eigenständig —
+    // manuelle Bewegung würde die Suche verwirren, siehe AutoFindDefocus.
+    public bool CanMoveFocuser => IsFocuserConnected && !IsFocuserMoving && !IsAutoFindDefocusRunning;
     public bool CanHaltFocuser => IsFocuserConnected;
 
     [RelayCommand]
@@ -4139,21 +4174,29 @@ public partial class MainWindowViewModel : ViewModelBase
         await Task.Run(f.Halt);
     }
 
-    private async Task RunFocuserMoveAsync(AlpacaFocuserClient f, Action move)
+    // ct: optional Abbruch für die automatische Defokus-Suche (AutoFindDefocus)
+    // — bricht das Nachführ-Polling ab, ohne das Verhalten der übrigen Aufrufer
+    // (Default = CancellationToken.None) zu ändern.
+    private async Task RunFocuserMoveAsync(AlpacaFocuserClient f, Action move, CancellationToken ct = default)
     {
         IsFocuserMoving = true;
         try
         {
-            await Task.Run(move);
+            await Task.Run(move, ct);
             // Position live nachführen, bis das Gerät steht (max ~2,5 min als
             // Sicherheitsnetz gegen Geräte, deren IsMoving hängen bleibt).
             for (var i = 0; i < 600; i++)
             {
-                var (pos, moving, temp) = await Task.Run(() => (f.Position, f.IsMoving, f.Temperature));
+                ct.ThrowIfCancellationRequested();
+                var (pos, moving, temp) = await Task.Run(() => (f.Position, f.IsMoving, f.Temperature), ct);
                 UpdateFocuserPositionText(pos, moving, temp);
                 if (!moving || !IsFocuserConnected) break;
-                await Task.Delay(250);
+                await Task.Delay(250, ct);
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -4171,6 +4214,311 @@ public partial class MainWindowViewModel : ViewModelBase
         FocuserPositionText = posPart
             + (moving ? " · fährt …" : "")
             + (temp is { } t ? $" · {t:0.0} °C" : "");
+    }
+
+    // --- Fokus-Paar (Sterntest): reproduzierbar zwischen Intra-/Extrafokal ---
+    // Der Fangspiegel sitzt beim Newton absichtlich versetzt — ein Rest-Versatz
+    // zur Obstruktion ist normal. Der eigentliche Kollimationsfehler zeigt sich
+    // erst im Vergleich zweier Aufnahmen beidseits des Fokus (Mittel der
+    // Versatzvektoren; die Auswertung selbst folgt in einem separaten Schritt).
+    // Dafür merkt sich die App eine Fokus-Mitte + einen Defokus-Betrag (Schritte)
+    // und kann beide Zielpositionen reproduzierbar anfahren — reine Arithmetik
+    // dazu in FreeCol.Core.Focuser.FocusPairModel (isoliert testbar).
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IntraFocusPosition))]
+    [NotifyPropertyChangedFor(nameof(ExtraFocusPosition))]
+    [NotifyPropertyChangedFor(nameof(HasFocusPair))]
+    [NotifyPropertyChangedFor(nameof(FocusPairStatusText))]
+    [NotifyCanExecuteChangedFor(nameof(GoToIntraFocusCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GoToExtraFocusCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AutoFindDefocusCommand))]
+    [NotifyCanExecuteChangedFor(nameof(MeasurePairCommand))]
+    private int _focusCenterPosition = -1;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IntraFocusPosition))]
+    [NotifyPropertyChangedFor(nameof(ExtraFocusPosition))]
+    [NotifyPropertyChangedFor(nameof(HasFocusPair))]
+    [NotifyPropertyChangedFor(nameof(FocusPairStatusText))]
+    [NotifyCanExecuteChangedFor(nameof(GoToIntraFocusCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GoToExtraFocusCommand))]
+    [NotifyCanExecuteChangedFor(nameof(MeasurePairCommand))]
+    private int _defocusSteps;
+
+    /// <summary>Intrafokale Zielposition (reine Anzeige, nicht geklemmt) —
+    /// die Fahrbereichsprüfung passiert beim Anfahren, siehe
+    /// <see cref="GoToFocusPairPositionAsync"/>.</summary>
+    public int IntraFocusPosition => FocusPairModel.IntraFocusPosition(FocusCenterPosition, DefocusSteps);
+
+    /// <summary>Extrafokale Zielposition (reine Anzeige, nicht geklemmt).</summary>
+    public int ExtraFocusPosition => FocusPairModel.ExtraFocusPosition(FocusCenterPosition, DefocusSteps);
+
+    /// <summary>Ein gültiges Fokus-Paar liegt vor, sobald eine Fokus-Mitte
+    /// gemerkt UND ein Defokus-Betrag &gt; 0 gesetzt ist.</summary>
+    public bool HasFocusPair => FocusCenterPosition >= 0 && DefocusSteps > 0;
+
+    public string FocusPairStatusText => FocusCenterPosition < 0
+        ? "Noch keine Fokus-Mitte gemerkt."
+        : HasFocusPair
+            ? $"intra {IntraFocusPosition} · Fokus {FocusCenterPosition} · extra {ExtraFocusPosition}"
+            : $"Fokus {FocusCenterPosition} gemerkt — Defokus-Betrag (Schritte) eintragen.";
+
+    public bool CanMarkFocusCenter => IsFocuserConnected && !IsAutoFindDefocusRunning;
+
+    [RelayCommand(CanExecute = nameof(CanMarkFocusCenter))]
+    private void MarkFocusCenter()
+    {
+        if (_focuser is not { } f) return;
+        FocusCenterPosition = f.Position;
+        StatusText = $"Fokus-Mitte gemerkt: Position {FocusCenterPosition}.";
+    }
+
+    public bool CanGoToIntraFocus => CanMoveFocuser && HasFocusPair;
+    public bool CanGoToExtraFocus => CanMoveFocuser && HasFocusPair;
+
+    [RelayCommand(CanExecute = nameof(CanGoToIntraFocus))]
+    private Task GoToIntraFocus() => GoToFocusPairPositionAsync(IntraFocusPosition, "intrafokal");
+
+    [RelayCommand(CanExecute = nameof(CanGoToExtraFocus))]
+    private Task GoToExtraFocus() => GoToFocusPairPositionAsync(ExtraFocusPosition, "extrafokal");
+
+    // Prüft VOR dem Fahrbefehl gegen den Fahrbereich (statt stillschweigend zu
+    // klemmen) — eine verschobene Fokus-Mitte oder ein zu großer Defokus-Betrag
+    // soll eine klare Meldung geben, kein unerwartetes Anfahren einer anderen
+    // als der eingetragenen Position.
+    private async Task GoToFocusPairPositionAsync(int target, string label)
+    {
+        if (_focuser is not { } f) return;
+        if (!FocusPairModel.IsWithinRange(target, _focuserMaxStep))
+        {
+            StatusText = $"Fokus {label}: Zielposition {target} liegt außerhalb des Fahrbereichs "
+                + $"0..{_focuserMaxStep} — Defokus-Betrag verringern.";
+            return;
+        }
+        await RunFocuserMoveAsync(f, () => f.MoveTo(target));
+        StatusText = $"Fokuser auf {label} gefahren (Position {target}).";
+    }
+
+    // --- Defokus automatisch suchen -------------------------------------------
+    // Startschrittweite bewusst unabhängig von FocuserStepSize gewählt: dieses
+    // Feld dient der manuellen Grob-/Feinjustage (Voreinstellungen 10/100/1000)
+    // und kann z. B. auf 1000 stehen, wenn zuletzt grob verfahren wurde — für
+    // die automatische Suche wäre das ein zu grobes Raster, das das schmale
+    // Zielband leicht überspringt. 50 Schritte treffen es bei den bisher
+    // vermessenen Fokusern innerhalb weniger Iterationen, ohne es in einem
+    // einzigen Sprung zu überspringen.
+    private const int AutoFindDefocusStartStep = 50;
+    private const int AutoFindDefocusMaxSteps = 15;
+
+    // Zielband deckt sich bewusst mit StarTestQualityHint (dort abgelesen,
+    // nicht neu erfunden): OuterRadius < 30 px = zu klein/unempfindlich,
+    // > 150 px = evtl. Feldrand/Außenfit unsicher.
+    private const double AutoFindDefocusMinRadius = 30;
+    private const double AutoFindDefocusMaxRadius = 150;
+
+    // Ab dieser relativen Abweichung zwischen intra- und extrafokalem Radius
+    // wird zusätzlich gewarnt (z. B. Stern nicht zentriert, Feldrand-Effekte) —
+    // der gefundene Defokus-Betrag wird trotzdem übernommen (siehe Auftrag).
+    private const double AutoFindDefocusAsymmetryWarnFraction = 0.30;
+
+    private CancellationTokenSource? _autoFindDefocusCts;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowAutoFindDefocusPanel))]
+    [NotifyCanExecuteChangedFor(nameof(FocuserInCommand))]
+    [NotifyCanExecuteChangedFor(nameof(FocuserOutCommand))]
+    [NotifyCanExecuteChangedFor(nameof(FocuserGoToCommand))]
+    [NotifyCanExecuteChangedFor(nameof(MarkFocusCenterCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GoToIntraFocusCommand))]
+    [NotifyCanExecuteChangedFor(nameof(GoToExtraFocusCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AutoFindDefocusCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelAutoFindDefocusCommand))]
+    private bool _isAutoFindDefocusRunning;
+
+    // Live-Fortschritt — wird während des Laufs laufend aktualisiert (siehe
+    // Ergänzung: eine flüchtige StatusText-Zeile allein reicht nicht).
+    [ObservableProperty] private string _autoFindDefocusPhaseText = "";
+    [ObservableProperty] private string _autoFindDefocusStepText = "";
+    [ObservableProperty] private string _autoFindDefocusMeasurementText = "";
+
+    // Bleibt NACH dem Lauf stehen (Erfolg wie Fehlschlag) — Ergebnis soll
+    // dauerhaft sichtbar bleiben, nicht nur als vorbeihuschende Statuszeile.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowAutoFindDefocusPanel))]
+    private string _autoFindDefocusResultText = "";
+
+    /// <summary>Zeigt den Fortschritts-/Ergebnis-Block: während des Laufs immer,
+    /// danach weiter, solange ein Ergebnistext steht (bis zum nächsten Lauf).</summary>
+    public bool ShowAutoFindDefocusPanel =>
+        IsAutoFindDefocusRunning || !string.IsNullOrEmpty(AutoFindDefocusResultText);
+
+    public string AutoFindDefocusTargetText =>
+        $"Ziel: Außenradius {AutoFindDefocusMinRadius:0}-{AutoFindDefocusMaxRadius:0} px "
+        + "(siehe Donut-Hinweis)";
+
+    public bool CanAutoFindDefocus =>
+        IsFocuserConnected && !IsFocuserMoving && !IsAutoFindDefocusRunning && FocusCenterPosition >= 0;
+
+    [RelayCommand(CanExecute = nameof(CanAutoFindDefocus))]
+    private async Task AutoFindDefocus()
+    {
+        if (_focuser is not { } f) return;
+        // Nur mit Live-Quelle sinnvoll — Datei/Ordner liefern keine Einzelbilder
+        // auf Abruf. CanExecute bleibt bewusst unabhängig davon (siehe oben),
+        // damit der Nutzer eine erklärende Meldung statt eines nur gesperrten
+        // Buttons sieht.
+        if (!IsStarAlpacaSource && !IsStarAsiSource)
+        {
+            StatusText = "Defokus-Suche braucht eine Live-Quelle (Alpaca/ASI) — bei Datei/Ordner "
+                + "kein automatischer Lauf möglich.";
+            return;
+        }
+        if ((IsStarAlpacaSource && _alpaca is null) || (IsStarAsiSource && _asi is null))
+        {
+            StatusText = "Defokus-Suche: erst die Live-Kamera verbinden.";
+            return;
+        }
+        var captureFrame = IsStarAlpacaSource
+            ? (Func<Task<bool>>)CaptureAlpacaFrameAsync
+            : CaptureAsiFrameAsync;
+
+        var cts = new CancellationTokenSource();
+        _autoFindDefocusCts = cts;
+        var ct = cts.Token;
+        var center = FocusCenterPosition;
+
+        EnterBusy();
+        IsAutoFindDefocusRunning = true;
+        AutoFindDefocusResultText = "";
+        AutoFindDefocusMeasurementText = "";
+        AutoFindDefocusStepText = $"Schritt 0 von max. {AutoFindDefocusMaxSteps}";
+        AutoFindDefocusPhaseText = "Suche startet …";
+        try
+        {
+            var found = await SearchIntraDefocusAsync(f, center, captureFrame, ct);
+            if (found is int steps)
+            {
+                var intraRadius = _donut?.OuterRadius ?? 0;
+                DefocusSteps = steps;
+                await VerifyOppositeSideAsync(f, center, steps, intraRadius, captureFrame, ct);
+            }
+            else
+            {
+                AutoFindDefocusResultText = "Keine passende Defokus-Position im Zielband gefunden "
+                    + $"(max. {AutoFindDefocusMaxSteps} Schritte oder Fahrbereich erreicht).";
+                StatusText = "Defokus-Suche erfolglos — Fokuser fährt zurück auf die Fokus-Mitte.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            AutoFindDefocusResultText = "Defokus-Suche abgebrochen.";
+            StatusText = "Defokus-Suche abgebrochen — Fokuser fährt zurück auf die Fokus-Mitte.";
+        }
+        finally
+        {
+            // Immer zurück auf die Fokus-Mitte — Erfolg, Fehlschlag und Abbruch
+            // sollen den Nutzer nie an einer unbekannten Position zurücklassen.
+            // Mit CancellationToken.None (Default), da ct hier bereits
+            // abgebrochen sein kann.
+            AutoFindDefocusPhaseText = $"Fahre zurück auf Fokus-Mitte {center} …";
+            await RunFocuserMoveAsync(f, () => f.MoveTo(center));
+            IsAutoFindDefocusRunning = false;
+            ExitBusy();
+            _autoFindDefocusCts = null;
+            cts.Dispose();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(IsAutoFindDefocusRunning))]
+    private void CancelAutoFindDefocus() => _autoFindDefocusCts?.Cancel();
+
+    // Sucht vom Center ausgehend in eine feste Richtung (hier: intrafokal,
+    // Center minus wachsendem Defokus) — welche physische Fahrtrichtung das
+    // ist, hängt vom Gerät ab, die Benennung selbst ist eine reine
+    // Konvention dieser Suche. Der Defokus-Betrag gilt danach für BEIDE
+    // Seiten (siehe FocusPairModel); die Gegenprobe fährt bewusst die andere
+    // (extrafokale) Seite an.
+    private async Task<int?> SearchIntraDefocusAsync(
+        AlpacaFocuserClient f, int center, Func<Task<bool>> captureFrame, CancellationToken ct)
+    {
+        for (var step = 1; step <= AutoFindDefocusMaxSteps; step++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var defocus = step * AutoFindDefocusStartStep;
+            var target = FocusPairModel.IntraFocusPosition(center, defocus);
+            if (!FocusPairModel.IsWithinRange(target, _focuserMaxStep))
+            {
+                AutoFindDefocusPhaseText = "Fahrbereich erreicht — Suche abgebrochen.";
+                return null;
+            }
+
+            AutoFindDefocusStepText = $"Schritt {step} von max. {AutoFindDefocusMaxSteps}";
+            AutoFindDefocusPhaseText = $"Fahre auf Position {target} …";
+            await RunFocuserMoveAsync(f, () => f.MoveTo(target), ct);
+
+            AutoFindDefocusPhaseText = "Belichte …";
+            var ok = await captureFrame();
+            ct.ThrowIfCancellationRequested();
+
+            AutoFindDefocusPhaseText = "Messe Donut …";
+            if (!ok || _donut is not { } d)
+            {
+                AutoFindDefocusMeasurementText = "Kein Donut erkannt — weiter defokussieren.";
+                continue;
+            }
+
+            AutoFindDefocusMeasurementText = DescribeDefocusRadius(d.OuterRadius);
+            if (d.OuterRadius >= AutoFindDefocusMinRadius && d.OuterRadius <= AutoFindDefocusMaxRadius)
+                return defocus;
+        }
+        return null;
+    }
+
+    private static string DescribeDefocusRadius(double radius) =>
+        radius < AutoFindDefocusMinRadius
+            ? $"Radius {radius:0} px — noch zu klein, weiter defokussieren."
+            : radius > AutoFindDefocusMaxRadius
+                ? $"Radius {radius:0} px — schon zu groß für das Zielband."
+                : $"Radius {radius:0} px — im Zielband ({AutoFindDefocusMinRadius:0}-{AutoFindDefocusMaxRadius:0} px).";
+
+    // Gegenprobe auf der jeweils anderen Seite (siehe SearchIntraDefocusAsync):
+    // fährt die extrafokale Position an, misst den Radius und vergleicht ihn
+    // mit dem intrafokalen Wert. Bei starker Abweichung wird gewarnt, der
+    // gefundene Defokus-Betrag bleibt trotzdem gesetzt (siehe Auftrag).
+    private async Task VerifyOppositeSideAsync(
+        AlpacaFocuserClient f, int center, int defocusSteps, double intraRadius,
+        Func<Task<bool>> captureFrame, CancellationToken ct)
+    {
+        var target = FocusPairModel.ExtraFocusPosition(center, defocusSteps);
+        if (!FocusPairModel.IsWithinRange(target, _focuserMaxStep))
+        {
+            AutoFindDefocusResultText = $"Defokus {defocusSteps} Schritte — intra R={intraRadius:0} px. "
+                + "Extra-Gegenprobe übersprungen (Position außerhalb des Fahrbereichs).";
+            return;
+        }
+
+        AutoFindDefocusPhaseText = $"Gegenprobe: fahre auf Extra-Position {target} …";
+        await RunFocuserMoveAsync(f, () => f.MoveTo(target), ct);
+        AutoFindDefocusPhaseText = "Gegenprobe: belichte …";
+        var ok = await captureFrame();
+        ct.ThrowIfCancellationRequested();
+
+        if (!ok || _donut is not { } d)
+        {
+            AutoFindDefocusResultText = $"Defokus {defocusSteps} Schritte — intra R={intraRadius:0} px, "
+                + "Extra-Gegenprobe ohne erkannten Donut.";
+            return;
+        }
+
+        var extraRadius = d.OuterRadius;
+        var deviation = intraRadius > 0 ? Math.Abs(extraRadius - intraRadius) / intraRadius : 0;
+        var warn = deviation > AutoFindDefocusAsymmetryWarnFraction
+            ? $" ⚠ weicht {deviation * 100:0}% ab — Stern zentriert? Wert wird trotzdem übernommen."
+            : "";
+        AutoFindDefocusResultText = $"Defokus {defocusSteps} Schritte gefunden — "
+            + $"intra R={intraRadius:0} px · extra R={extraRadius:0} px.{warn}";
+        StatusText = $"Defokus-Suche abgeschlossen: {defocusSteps} Schritte "
+            + $"(intra {intraRadius:0} px / extra {extraRadius:0} px).";
     }
 
     // --- FileWatcher: Ordner auf neue Aufnahmen überwachen --------------------
@@ -4368,14 +4716,260 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    // Drehempfehlung pro Schraube: Versatz (Obstruktion→Scheibchen) auf 0 ziehen.
-    // Σ=0 (gemeinsamer Offset = reiner Piston, kein Tilt) → nie „alle gleichsinnig".
+    // --- Teleskop-Typ (Newton vs. RC/SC) --------------------------------------
+    // Bestimmt, ob der Versatz Obstruktion↔Scheibchen in EINEM Bild ein gültiges
+    // Kollimationsmaß ist (RC/SC: Fangspiegel sitzt zentrisch) oder ob dafür erst
+    // der Vergleich eines intra-/extrafokalen Paars nötig ist (Newton: Fangspiegel
+    // sitzt konstruktiv versetzt, siehe CollimationPair). Default Newton — die weit
+    // häufigere Bauart bei visuellen/fotografischen Amateur-Teleskopen.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsNewtonTelescope))]
+    [NotifyPropertyChangedFor(nameof(IsRcOrScTelescope))]
+    [NotifyPropertyChangedFor(nameof(GuideText))]
+    [NotifyPropertyChangedFor(nameof(StarOverlayExplanationText))]
+    private TelescopeType _telescopeType = TelescopeType.Newton;
+
+    public bool IsNewtonTelescope
+    {
+        get => TelescopeType == TelescopeType.Newton;
+        set { if (value) TelescopeType = TelescopeType.Newton; }
+    }
+
+    public bool IsRcOrScTelescope
+    {
+        get => TelescopeType == TelescopeType.RcOrSc;
+        set { if (value) TelescopeType = TelescopeType.RcOrSc; }
+    }
+
+    // --- Paar-Messung: intra-/extrafokale Gegenprobe (Newton) -----------------
+    // Zwei Messplätze (A/B) mit je einer Donut-Messung + Fokus-Seite (Vorzeichen
+    // reicht, siehe CollimationPair.Evaluate) — befüllbar live (Fokuser fährt
+    // beide Positionen an) oder aus Dateien (Fokuser-Position aus dem FITS-Header
+    // bzw. manuelle Zuordnung, wenn der Header nichts liefert).
+    private sealed record PairSlot(
+        DonutResult Donut, int FocusOffsetSteps, string SourceLabel, DateTimeOffset CapturedAt);
+
+    private PairSlot? _pairSlotA;
+    private PairSlot? _pairSlotB;
+
+    public bool HasPairSlotA => _pairSlotA is not null;
+    public bool HasPairSlotB => _pairSlotB is not null;
+
+    private static string PairSideLabel(int offsetSteps) => offsetSteps < 0 ? "intrafokal" : "extrafokal";
+
+    private static string PairBrightnessInfo(DonutResult d) =>
+        $"Info: Helligkeits-Ungleichmäßigkeit {d.BrightnessImbalance * 100:0} % "
+        + $"Richtung {OffsetArrow(d.BrightnessDarkDirection.X, d.BrightnessDarkDirection.Y)} "
+        + $"({Math.Atan2(d.BrightnessDarkDirection.Y, d.BrightnessDarkDirection.X) * 180.0 / Math.PI:0}°) "
+        + "— fließt NICHT in die Bewertung ein (siehe Hinweis).";
+
+    public string PairSlotAText => _pairSlotA is { } a
+        ? $"A: {PairSideLabel(a.FocusOffsetSteps)} · R={a.Donut.OuterRadius:0} px · "
+          + $"{a.SourceLabel} ({a.CapturedAt:HH:mm:ss})\n"
+          + $"    {PairBrightnessInfo(a.Donut)}"
+        : "A: noch keine Aufnahme.";
+
+    public string PairSlotBText => _pairSlotB is { } b
+        ? $"B: {PairSideLabel(b.FocusOffsetSteps)} · R={b.Donut.OuterRadius:0} px · "
+          + $"{b.SourceLabel} ({b.CapturedAt:HH:mm:ss})\n"
+          + $"    {PairBrightnessInfo(b.Donut)}"
+        : "B: noch keine Aufnahme.";
+
+    // Auswertung des aktuellen Paares — null, solange nicht beide Messplätze
+    // befüllt sind. IsEvaluable kann trotzdem false sein (siehe CollimationPair),
+    // was bei den festen Vorzeichen unten (A immer negativ, B immer positiv)
+    // praktisch nicht vorkommt, aber sicherheitshalber weiter geprüft wird.
+    private CollimationPairResult? CurrentPairResult =>
+        _pairSlotA is { } a && _pairSlotB is { } b
+            ? CollimationPair.Evaluate(a.Donut, a.FocusOffsetSteps, b.Donut, b.FocusOffsetSteps)
+            : null;
+
+    public bool ShowStarTestUnequalDefocusWarning =>
+        CurrentPairResult is { IsEvaluable: true, UnequalDefocusWarning: true };
+
+    public string StarTestUnequalDefocusWarningText =>
+        CurrentPairResult is { IsEvaluable: true } pair && _pairSlotA is { } a && _pairSlotB is { } b
+            ? $"⚠ Defokus-Beträge zu ungleich (Radius A {a.Donut.OuterRadius:0} px vs. "
+              + $"B {b.Donut.OuterRadius:0} px, Verhältnis {pair.RadiusRatio:0.00}) — Ergebnis unsicherer."
+            : "";
+
+    private void SetPairSlotA(DonutResult donut, int focusOffsetSteps, string sourceLabel)
+    {
+        _pairSlotA = new PairSlot(donut, focusOffsetSteps, sourceLabel, DateTimeOffset.Now);
+        NotifyStarTestReadouts();
+    }
+
+    private void SetPairSlotB(DonutResult donut, int focusOffsetSteps, string sourceLabel)
+    {
+        _pairSlotB = new PairSlot(donut, focusOffsetSteps, sourceLabel, DateTimeOffset.Now);
+        NotifyStarTestReadouts();
+    }
+
+    // Nur das Vorzeichen von focusOffsetSteps geht in die Auswertung ein (siehe
+    // CollimationPair.Evaluate) — die manuelle Zuordnung braucht deshalb keine
+    // echte Fokuser-Position, ein reiner Seiten-Sentinel (-1/+1) reicht.
+    public bool CanAssignPairSlot => _donut is not null;
+
+    [RelayCommand(CanExecute = nameof(CanAssignPairSlot))]
+    private void AssignCurrentAsPairA()
+    {
+        if (_donut is not { } d) return;
+        SetPairSlotA(d, -1, "manuell zugeordnet");
+        StatusText = "Aktuelles Bild als Aufnahme A (intrafokal) übernommen.";
+    }
+
+    [RelayCommand(CanExecute = nameof(CanAssignPairSlot))]
+    private void AssignCurrentAsPairB()
+    {
+        if (_donut is not { } d) return;
+        SetPairSlotB(d, 1, "manuell zugeordnet");
+        StatusText = "Aktuelles Bild als Aufnahme B (extrafokal) übernommen.";
+    }
+
+    [RelayCommand]
+    private void ResetPair()
+    {
+        _pairSlotA = null;
+        _pairSlotB = null;
+        NotifyStarTestReadouts();
+        StatusText = "Paar-Messung zurückgesetzt.";
+    }
+
+    // Datei-Weg: Fokuser-Position aus dem FITS-Header lesen und, sofern eine
+    // Fokus-Mitte gemerkt ist, automatisch dem passenden Messplatz zuordnen.
+    // Liefert der Header nichts (kein FITS, kein Keyword) oder ist keine
+    // Fokus-Mitte gemerkt, bleibt es beim manuellen Weg (als A/B übernehmen).
+    private void TryAutoAssignPairSlot(string path)
+    {
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext is not (".fits" or ".fit")) return;
+        if (FocusCenterPosition < 0 || _donut is not { } d) return;
+        if (FitsReader.GetFocuserPosition(path) is not { } pos) return;
+        var offset = pos - FocusCenterPosition;
+        if (offset == 0) return; // im Fokus — keiner Seite zuordenbar
+        var label = $"Datei (Fokuser {pos})";
+        if (offset < 0) SetPairSlotA(d, offset, label);
+        else SetPairSlotB(d, offset, label);
+    }
+
+    // --- Paar-Messung live: Fokuser fährt beide Positionen automatisch an ----
+    private CancellationTokenSource? _pairMeasurementCts;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(MeasurePairCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelPairMeasurementCommand))]
+    private bool _isPairMeasurementRunning;
+
+    [ObservableProperty] private string _pairMeasurementPhaseText = "";
+    [ObservableProperty] private string _pairMeasurementResultText = "";
+
+    public bool ShowPairMeasurementPanel =>
+        IsPairMeasurementRunning || !string.IsNullOrEmpty(PairMeasurementResultText);
+
+    public bool CanMeasurePair =>
+        IsFocuserConnected && !IsFocuserMoving && !IsPairMeasurementRunning && HasFocusPair;
+
+    [RelayCommand(CanExecute = nameof(CanMeasurePair))]
+    private async Task MeasurePair()
+    {
+        if (_focuser is not { } f) return;
+        if (!IsStarAlpacaSource && !IsStarAsiSource)
+        {
+            StatusText = "Paar-Messung braucht eine Live-Quelle (Alpaca/ASI) — bei Datei/Ordner "
+                + "die Aufnahmen einzeln laden und per 'als A/B übernehmen' zuordnen.";
+            return;
+        }
+        if ((IsStarAlpacaSource && _alpaca is null) || (IsStarAsiSource && _asi is null))
+        {
+            StatusText = "Paar-Messung: erst die Live-Kamera verbinden.";
+            return;
+        }
+        var captureFrame = IsStarAlpacaSource
+            ? (Func<Task<bool>>)CaptureAlpacaFrameAsync
+            : CaptureAsiFrameAsync;
+
+        var cts = new CancellationTokenSource();
+        _pairMeasurementCts = cts;
+        var ct = cts.Token;
+        var center = FocusCenterPosition;
+        var defocus = DefocusSteps;
+
+        EnterBusy();
+        IsPairMeasurementRunning = true;
+        PairMeasurementResultText = "";
+        PairMeasurementPhaseText = "Paar-Messung startet …";
+        try
+        {
+            if (!await CapturePairSideAsync(f, center, -defocus, captureFrame, "A (intrafokal)", SetPairSlotA, ct))
+                return;
+            if (!await CapturePairSideAsync(f, center, defocus, captureFrame, "B (extrafokal)", SetPairSlotB, ct))
+                return;
+            PairMeasurementResultText = "Paar-Messung abgeschlossen — Auswertung siehe Readout oben.";
+            StatusText = "Paar-Messung abgeschlossen.";
+        }
+        catch (OperationCanceledException)
+        {
+            PairMeasurementResultText = "Paar-Messung abgebrochen.";
+            StatusText = "Paar-Messung abgebrochen — Fokuser fährt zurück auf die Fokus-Mitte.";
+        }
+        finally
+        {
+            PairMeasurementPhaseText = $"Fahre zurück auf Fokus-Mitte {center} …";
+            await RunFocuserMoveAsync(f, () => f.MoveTo(center));
+            IsPairMeasurementRunning = false;
+            ExitBusy();
+            _pairMeasurementCts = null;
+            cts.Dispose();
+        }
+    }
+
+    // Fährt eine Fokus-Paar-Seite an, belichtet und übernimmt das Ergebnis in den
+    // übergebenen Messplatz. false = abgebrochen (Fahrbereich/kein Donut) — der
+    // Aufrufer beendet die Messung dann mit dem bereits gesetzten Ergebnistext.
+    private async Task<bool> CapturePairSideAsync(
+        AlpacaFocuserClient f, int center, int offsetSteps, Func<Task<bool>> captureFrame,
+        string sideLabel, Action<DonutResult, int, string> setSlot, CancellationToken ct)
+    {
+        var target = center + offsetSteps;
+        if (!FocusPairModel.IsWithinRange(target, _focuserMaxStep))
+        {
+            PairMeasurementResultText = $"Aufnahme {sideLabel}: Zielposition {target} außerhalb des Fahrbereichs.";
+            return false;
+        }
+        PairMeasurementPhaseText = $"Fahre auf Position {target} ({sideLabel}) …";
+        await RunFocuserMoveAsync(f, () => f.MoveTo(target), ct);
+        PairMeasurementPhaseText = $"Belichte Aufnahme {sideLabel} …";
+        var ok = await captureFrame();
+        ct.ThrowIfCancellationRequested();
+        if (!ok || _donut is not { } d)
+        {
+            PairMeasurementResultText = $"Aufnahme {sideLabel}: kein Donut erkannt — Paar-Messung abgebrochen.";
+            return false;
+        }
+        setSlot(d, offsetSteps, $"Live {sideLabel}");
+        return true;
+    }
+
+    [RelayCommand(CanExecute = nameof(IsPairMeasurementRunning))]
+    private void CancelPairMeasurement() => _pairMeasurementCts?.Cancel();
+
+    // Ziel-Vektor für die Schrauben-Drehempfehlung: beim Newton nur mit gültigem
+    // Paar (siehe CollimationPair — der Rest-Versatz im Einzelbild ist dort kein
+    // Kollimationsmaß), bei RC/SC unverändert der rohe Einzelbild-Versatz.
+    private Point2f? NewtonRecommendationTarget() =>
+        TelescopeType == TelescopeType.RcOrSc
+            ? (_donut is { } d ? d.Offset : (Point2f?)null)
+            : (CurrentPairResult is { IsEvaluable: true } pair ? pair.ErrorPixels : (Point2f?)null);
+
+    // Drehempfehlung pro Schraube: Versatz (Obstruktion→Scheibchen bzw. beim
+    // Newton den paarermittelten Fehler) auf 0 ziehen. Σ=0 (gemeinsamer Offset =
+    // reiner Piston, kein Tilt) → nie „alle gleichsinnig".
     private Dictionary<string, double> RecommendedStarTurns()
     {
         var result = new Dictionary<string, double>();
-        if (!StarScrewsFullyCalibrated || _donut is not { } d) return result;
+        if (!StarScrewsFullyCalibrated || NewtonRecommendationTarget() is not { } target) return result;
         var screws = StarScrews.Screws;
-        var turns = ScrewSolver.ComputeTurns(screws, -d.Offset.X, -d.Offset.Y);
+        var turns = ScrewSolver.ComputeTurns(screws, -target.X, -target.Y);
         var mean = turns.Length > 0 ? turns.Average() : 0;
         for (int i = 0; i < screws.Count; i++) result[screws[i].Name] = turns[i] - mean;
         return result;
@@ -4401,7 +4995,8 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         get
         {
-            if (!StarScrewsFullyCalibrated || _donut is null || IsStarScrewCalibrating) return false;
+            if (!StarScrewsFullyCalibrated || IsStarScrewCalibrating) return false;
+            if (NewtonRecommendationTarget() is null) return false;
             var rec = RecommendedStarTurns();
             return rec.Count > 0 && rec.Values.All(t => Math.Abs(t) < 0.02);
         }
@@ -4431,7 +5026,8 @@ public partial class MainWindowViewModel : ViewModelBase
     // Diagramm erst zeigen, wenn alle Schrauben kalibriert sind UND eine
     // Empfehlung vorliegt (Donut erkannt). NICHT während einer Kalibrierung —
     // dort liegt (noch) keine gültige Berechnung vor.
-    public bool ShowStarDiagram => StarScrewsFullyCalibrated && _donut is not null && !IsStarScrewCalibrating;
+    public bool ShowStarDiagram =>
+        StarScrewsFullyCalibrated && !IsStarScrewCalibrating && NewtonRecommendationTarget() is not null;
 
     public System.Collections.Generic.IReadOnlyList<ScrewMarkerVm> StarScrewMarkers
     {
@@ -4593,17 +5189,76 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _starFrameSourceText = "";
     public string StarFrameSourceText => _starFrameSourceText;
 
-    public string StarTestOffsetText => _donut is { } d
-        ? $"Versatz {d.OffsetMagnitude:0.0} px  (Δx={d.Offset.X:+0.0;-0.0}, Δy={d.Offset.Y:+0.0;-0.0})  {OffsetArrow(d.Offset.X, d.Offset.Y)}"
-        : "—";
+    // RC/SC: unverändert der rohe Einzelbild-Versatz. Newton: die zweite Zeile
+    // zeigt statt des rohen Versatzes den systematischen Anteil (Fangspiegel-
+    // Offset) aus der Paar-Auswertung — bzw., ohne gültiges Paar, den Hinweis,
+    // dass dafür zwei Aufnahmen beidseits des Fokus nötig sind.
+    public string StarTestOffsetText
+    {
+        get
+        {
+            if (TelescopeType == TelescopeType.RcOrSc)
+            {
+                return _donut is { } d
+                    ? $"Versatz {d.OffsetMagnitude:0.0} px  "
+                      + $"(Δx={d.Offset.X:+0.0;-0.0}, Δy={d.Offset.Y:+0.0;-0.0})  "
+                      + $"{OffsetArrow(d.Offset.X, d.Offset.Y)}"
+                    : "—";
+            }
+            return CurrentPairResult switch
+            {
+                { IsEvaluable: true } pair =>
+                    $"Systematischer Anteil (Fangspiegel-Offset): {pair.SystematicPercent:0.0} % vom Radius "
+                    + "— Kennzahl des Teleskops, bleibt über Sessions stabil, NICHT wegjustieren.",
+                { IsEvaluable: false } notEvaluable => notEvaluable.Reason ?? "",
+                _ => "Für den echten Kollimationsfehler zwei Aufnahmen beidseits des Fokus "
+                    + "(intra-/extrafokal) nötig — siehe Paar-Messung unten.",
+            };
+        }
+    }
 
-    public string StarTestMetricText => _donut is { } d
-        ? $"Kollimation: {d.OffsetMagnitude / Math.Max(d.OuterRadius, 1) * 100:0.0} % vom Radius"
-        : "Kein Donut erkannt";
+    // RC/SC: unverändert der rohe Einzelbild-Versatz als Kollimationsmaß.
+    // Newton: der Rest-Versatz im Einzelbild ist beim Newton KEIN Kollimationsmaß
+    // (Fangspiegel sitzt absichtlich versetzt) — erst der Paar-Vergleich zeigt den
+    // echten Fehler (ErrorPercent).
+    public string StarTestMetricText
+    {
+        get
+        {
+            if (TelescopeType == TelescopeType.RcOrSc)
+            {
+                return _donut is { } d
+                    ? $"Kollimation: {d.OffsetMagnitude / Math.Max(d.OuterRadius, 1) * 100:0.0} % vom Radius"
+                    : "Kein Donut erkannt";
+            }
+            return CurrentPairResult is { IsEvaluable: true } pair
+                ? $"Kollimationsfehler: {pair.ErrorPercent:0.0} % vom Radius"
+                : "Kollimationsfehler: Paar-Messung nötig (siehe unten)";
+        }
+    }
 
     public string StarTestGeometryText => _donut is { } d
         ? $"Außen {d.OuterRadius:0} px · Innen {d.InnerRadius:0} px · Obstr {d.Obstruction:0.00}"
         : "—";
+
+    // Overlay-Erklärtext: bei RC/SC ist der gelbe Versatz direkt das
+    // Kollimationsmaß (Fangspiegel sitzt zentrisch). Beim Newton sitzt der
+    // Fangspiegel konstruktiv versetzt — ein Rest-Versatz in DIESEM Einzelbild
+    // ist normal und KEIN Kollimationsmaß; erst der Vergleich beider Fokus-
+    // Seiten (Paar-Messung) zeigt den echten Fehler.
+    public string StarOverlayExplanationText => TelescopeType == TelescopeType.RcOrSc
+        ? "Grün = Scheibchen (SOLL), Rot = Obstruktion (IST), Gelb = Versatz zwischen beiden. "
+          + "Je kleiner der gelbe Versatz, desto besser kollimiert.\n"
+          + "Anleitung: Stern mittig stellen und mittel defokussieren, bis ein Donut sichtbar "
+          + "ist. Dann den Drehempfehlungen folgen, bis der Versatz minimal ist."
+        : "Grün = Scheibchen (SOLL), Rot = Obstruktion (IST), Gelb = Versatz zwischen beiden. "
+          + "Beim Newton sitzt der Fangspiegel absichtlich versetzt — ein Rest-Versatz in DIESEM "
+          + "Einzelbild ist normal und KEIN Kollimationsmaß. Erst der Vergleich beider Fokus-"
+          + "Seiten (Paar-Messung unten) zeigt den echten Fehler.\n"
+          + "Anleitung: Stern mittig stellen und mittel defokussieren, bis ein Donut sichtbar "
+          + "ist. Dann je ein Bild vor dem Fokus (intrafokal) und nach dem Fokus (extrafokal) "
+          + "bei gleichem Defokus aufnehmen (Paar-Messung) und den Empfehlungen aus der "
+          + "Auswertung folgen.";
 
     public string StarTestQualityHint
     {
@@ -4652,6 +5307,16 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(StarScrewMarkers));
         OnPropertyChanged(nameof(StarArrowsGeometry));
         OnPropertyChanged(nameof(StarTurnLabels));
+        // Paar-Messung: Messplätze + Auswertung hängen ebenfalls an _donut
+        // (manuelle Zuordnung) bzw. ändern sich, sobald ein Messplatz gesetzt wird.
+        OnPropertyChanged(nameof(HasPairSlotA));
+        OnPropertyChanged(nameof(HasPairSlotB));
+        OnPropertyChanged(nameof(PairSlotAText));
+        OnPropertyChanged(nameof(PairSlotBText));
+        OnPropertyChanged(nameof(ShowStarTestUnequalDefocusWarning));
+        OnPropertyChanged(nameof(StarTestUnequalDefocusWarningText));
+        AssignCurrentAsPairACommand.NotifyCanExecuteChanged();
+        AssignCurrentAsPairBCommand.NotifyCanExecuteChanged();
     }
 
     private void RecomputeStarTestOverlay()
@@ -4738,6 +5403,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
             _starLastPath = path;
             ApplyStarGray(gray8, $"Sterntest: {Path.GetFileName(path)}");
+            // Datei-Weg der Paar-Messung: Fokuser-Position aus dem FITS-Header lesen
+            // und, sofern eine Fokus-Mitte gemerkt ist, automatisch dem passenden
+            // Messplatz zuordnen (siehe TryAutoAssignPairSlot).
+            TryAutoAssignPairSlot(path);
         }
         catch (Exception ex)
         {

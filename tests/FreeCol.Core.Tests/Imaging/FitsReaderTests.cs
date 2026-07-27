@@ -155,4 +155,89 @@ public class FitsReaderTests
         WithFits(cards, new byte[8], path =>
             Assert.Throws<NotSupportedException>(() => FitsReader.ReadGray16(path)));
     }
+
+    [Fact]
+    public void GetFocuserPosition_FocposPresent_ReturnsValue()
+    {
+        var cards = new (string, string)[]
+        {
+            ("BITPIX", "8"), ("NAXIS", "2"), ("NAXIS1", "1"), ("NAXIS2", "1"),
+            ("FOCPOS", "1400"),
+        };
+        WithFits(cards, new byte[] { 0 }, path =>
+            Assert.Equal(1400, FitsReader.GetFocuserPosition(path)));
+    }
+
+    [Fact]
+    public void GetFocuserPosition_OnlyFocusposPresent_FallsBack()
+    {
+        var cards = new (string, string)[]
+        {
+            ("BITPIX", "8"), ("NAXIS", "2"), ("NAXIS1", "1"), ("NAXIS2", "1"),
+            ("FOCUSPOS", "6000"),
+        };
+        WithFits(cards, new byte[] { 0 }, path =>
+            Assert.Equal(6000, FitsReader.GetFocuserPosition(path)));
+    }
+
+    [Fact]
+    public void GetFocuserPosition_FocposTakesPriorityOverFocusPos()
+    {
+        var cards = new (string, string)[]
+        {
+            ("BITPIX", "8"), ("NAXIS", "2"), ("NAXIS1", "1"), ("NAXIS2", "1"),
+            ("FOCPOS", "1400"), ("FOCUSPOS", "6000"),
+        };
+        WithFits(cards, new byte[] { 0 }, path =>
+            Assert.Equal(1400, FitsReader.GetFocuserPosition(path)));
+    }
+
+    [Fact]
+    public void GetFocuserPosition_QuotedValueWithComment_ParsedRobustly()
+    {
+        var cards = new (string, string)[]
+        {
+            ("BITPIX", "8"), ("NAXIS", "2"), ("NAXIS1", "1"), ("NAXIS2", "1"),
+            ("FOCPOS", "'1400' / [step] Focuser position"),
+        };
+        WithFits(cards, new byte[] { 0 }, path =>
+            Assert.Equal(1400, FitsReader.GetFocuserPosition(path)));
+    }
+
+    [Fact]
+    public void GetFocuserPosition_NeitherKeywordPresent_ReturnsNull()
+    {
+        var cards = new (string, string)[]
+        {
+            ("BITPIX", "8"), ("NAXIS", "2"), ("NAXIS1", "1"), ("NAXIS2", "1"),
+        };
+        WithFits(cards, new byte[] { 0 }, path =>
+            Assert.Null(FitsReader.GetFocuserPosition(path)));
+    }
+
+    [Fact]
+    public void GetFocuserPosition_UnparsableValue_ReturnsNull()
+    {
+        var cards = new (string, string)[]
+        {
+            ("BITPIX", "8"), ("NAXIS", "2"), ("NAXIS1", "1"), ("NAXIS2", "1"),
+            ("FOCPOS", "'unbekannt'"),
+        };
+        WithFits(cards, new byte[] { 0 }, path =>
+            Assert.Null(FitsReader.GetFocuserPosition(path)));
+    }
+
+    [Fact]
+    public void GetFocuserPosition_RealSnapshot_Returns1400()
+    {
+        // Echte Aufnahme (Astro-Rohdaten) — Test überspringt sich selbst, wenn
+        // die Datei auf diesem Rechner nicht vorhanden ist, damit die Suite
+        // auf anderen Rechnern grün bleibt.
+        const string path =
+            "/home/marc/Astro/Rohdaten/ZWO ASI2600MC Duo/Donut/2026-07-23/" +
+            "SNAPSHOT/UVIRCut/2026-07-23_23-33-11_UVIRCut_2.00s_400g_0000.fits";
+        if (!File.Exists(path)) return;
+
+        Assert.Equal(1400, FitsReader.GetFocuserPosition(path));
+    }
 }

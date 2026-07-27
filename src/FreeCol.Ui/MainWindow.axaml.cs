@@ -7,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Platform.Storage;
+using FreeCol.Core.Startest;
 using FreeCol.Ui.ViewModels;
 
 namespace FreeCol.Ui;
@@ -214,6 +215,13 @@ public partial class MainWindow : Window
         if (state.AlpacaGain >= 0) _viewModel.AlpacaGain = state.AlpacaGain;
         if (state.FocuserDevice >= 0) _viewModel.FocuserDevice = state.FocuserDevice;
         if (state.FocuserStepSize > 0) _viewModel.FocuserStepSize = state.FocuserStepSize;
+        if (state.FocusCenterPosition >= 0) _viewModel.FocusCenterPosition = state.FocusCenterPosition;
+        if (state.DefocusSteps > 0) _viewModel.DefocusSteps = state.DefocusSteps;
+        if (!string.IsNullOrEmpty(state.TelescopeType)
+            && Enum.TryParse<TelescopeType>(state.TelescopeType, out var telescopeType))
+        {
+            _viewModel.TelescopeType = telescopeType;
+        }
 
         // „So geht's"-Box-Position: nur übernehmen, wenn zuvor tatsächlich
         // verschoben (Sentinel -1 = Default unten links, siehe
@@ -385,6 +393,9 @@ public partial class MainWindow : Window
             LastJustagePhase: _viewModel.ActiveJustagePhase,
             FocuserDevice: _viewModel.FocuserDevice,
             FocuserStepSize: _viewModel.FocuserStepSize,
+            FocusCenterPosition: _viewModel.FocusCenterPosition,
+            DefocusSteps: _viewModel.DefocusSteps,
+            TelescopeType: _viewModel.TelescopeType.ToString(),
             JustageCompleted: _viewModel.IsJustageComplete,
             StarCollimationAchieved: _viewModel.StarCollimationAchieved,
             // Nur eine bewusst gesetzte Position persistieren — sonst bleibt der

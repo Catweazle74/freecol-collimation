@@ -11,11 +11,11 @@ in der du ihn tatsächlich brauchst.
 FreeCol führt dich in zwei Etappen zu einem kollimierten (optisch korrekt
 ausgerichteten) Newton-Teleskop:
 
-1. **Grobjustage mit der Justagekamera** — du steckst eine OCAL-Kamera (oder ein
-   vergleichbares UVC-Gerät) anstelle des Okulars in den Okularauszug (OAZ). Die
-   App zeigt live, wie Fangspiegel und Hauptspiegel relativ zueinander und zum
-   OAZ stehen, und führt dich in geführten Phasen durch die nötigen
-   Schraubendrehungen.
+1. **Grobjustage mit der Justagekamera** — du steckst eine Justagekamera (z. B.
+   eine OCAL) anstelle des Okulars in den Okularauszug (OAZ). Die App spricht
+   sie als generisches UVC-Gerät an. Sie zeigt live, wie Fangspiegel und
+   Hauptspiegel relativ zueinander und zum OAZ stehen, und führt dich in
+   geführten Phasen durch die nötigen Schraubendrehungen.
 2. **Feinjustage am echten Stern** — mit einer Astrokamera nimmst du ein
    absichtlich unscharfes („defokussiertes“) Bild eines hellen Sterns auf. Das
    Bild zeigt einen Ring mit dunklem Kern (den „Donut“). FreeCol misst dessen
@@ -67,7 +67,7 @@ neu erzeugen.)
 
 ## 2. Voraussetzungen
 
-- **Für die Grobjustage**: eine OCAL-Justagekamera (oder ein anderes
+- **Für die Grobjustage**: eine Justagekamera (z. B. OCAL oder ein anderes
   UVC-fähiges Kamera-Modul), die anstelle des Okulars in den Okularauszug
   passt. FreeCol spricht sie als generisches UVC-Gerät an — es gibt keine
   Hersteller-SDK-Bindung dafür.
@@ -192,7 +192,7 @@ Stützpunkte verfälschen.
 
 | ![Gesamtaufbau](bilder/aufbau-gesamt.jpg) | ![Lichtquelle](bilder/aufbau-licht.jpg) | ![Kalibrierungspunkt](bilder/aufbau-punkt.jpg) |
 |---|---|---|
-| Kompletter Aufbau: OCAL mit 100 mm T2-Verlängerung (30+20+20+30 mm) in der Auflage, vorn die Kappe; das Gummiband hält das leichte Ende beim Drehen unten | Lichtquelle über der Kappe beleuchtet die durchscheinende Rückwand | Blick aus Kamera-Richtung: durchleuchtete Rückwand mit dem Kalibrierungspunkt |
+| Kompletter Aufbau: Justagekamera (hier: OCAL) mit 100 mm T2-Verlängerung (30+20+20+30 mm) in der Auflage, vorn die Kappe; das Gummiband hält das leichte Ende beim Drehen unten | Lichtquelle über der Kappe beleuchtet die durchscheinende Rückwand | Blick aus Kamera-Richtung: durchleuchtete Rückwand mit dem Kalibrierungspunkt |
 
 Die Dateien liegen dem Release als „3D-Druckteile“-ZIP bei bzw. im
 Repo-Ordner `3D/`.
@@ -210,7 +210,7 @@ eine feste Bedeutung:
 | Sekundärspiegel | Dodger-Blau | der kleine, schräge Fangspiegel vorn im Tubus |
 | Hauptspiegel-Reflex | Hellgrün | Spiegelung des Hauptspiegels; zeigt, ob der Fangspiegel korrekt gekippt ist |
 | Marker | Rot | Zentrumsmarke auf dem Hauptspiegel (Ring mit Punkt) — das Ziel für Phase 3 |
-| Linse | Magenta | die dunkle Eigenlinse der OCAL-Kamera im Marker-Ring — wandert beim Hauptspiegel-Kippen |
+| Linse | Magenta | die dunkle Eigenlinse der Justagekamera im Marker-Ring (bei der OCAL im Marker-Ring sichtbar) — wandert beim Hauptspiegel-Kippen |
 
 **So geht's-Box**: Im Markierungs-Modus zeigt die blaue Box unten in der
 Seitenleiste die Kurzanleitung:
@@ -261,8 +261,8 @@ fest zentriert (z. B. CNC-gefertigt) ist — die Kipp-Phasen rücken dann in der
 Nummerierung nach vorn.
 
 **Position der Justagekamera im OAZ**: Der Imagetrain soll möglichst im
-Originalzustand vermessen werden. Setze die OCAL deshalb so ein, dass ihre
-Linse ungefähr den gleichen Abstand hat wie später der Sensor der
+Originalzustand vermessen werden. Setze die Justagekamera deshalb so ein, dass
+ihre Linse ungefähr den gleichen Abstand hat wie später der Sensor der
 Astrokamera: den OAZ in die übliche Fokusposition fahren und die Restdistanz
 mit Verlängerungshülsen überbrücken — nicht den OAZ weiter herausdrehen. So
 justierst du für genau die Geometrie, mit der du hinterher aufnimmst.
@@ -397,6 +397,78 @@ Der Sterntest analysiert ein defokussiertes Sternbild (den „Donut“) und
 Hauptspiegel-Justierschrauben — unabhängig von Kamera und Markierungen aus
 den vorherigen Schritten.
 
+### Teleskop-Typ und Paar-Messung (Newton vs. RC/SC)
+
+FreeCol unterscheidet zwei Teleskop-Typen, weil deren Kollimations-Charakteristiken
+verschieden sind:
+
+| Teleskop-Typ | Fangspiegel-Position | Einzelbild-Versatz | Verwendung |
+|---|---|---|---|
+| **Newton** (Voreinstellung) | absichtlich versetzt | **nicht** aussagekräftig — auch bei guter Kollimation | Muss Paar-Messung nutzen |
+| **RC/SC** | konzentrisch | direkt aussagekräftig | kann mit Einzelbild arbeiten |
+
+**Einstellung**: Oben im Panel wählst du `Newton (Fangspiegel-Offset)` oder `RC/SC (konzentrisch)`. Die Voreinstellung ist Newton, weil diese Bauart im Amateur-Bereich häufiger ist. Die Wahl wird gespeichert.
+
+**Auswirkung**: 
+- **Newton**: Drehempfehlungen erscheinen nur, wenn ein gültiges intra-/extrafokales **Paar** vorliegt. Ursache: Der Rest-Versatz im Einzelbild ist teils systematisch (echte Teleskop-Kennzahl), teils echter Kollimationsfehler — die Trennung gelingt nur im Vergleich.
+- **RC/SC**: Drehempfehlungen basieren auf dem Einzelbild, wie in traditionellen Sterntest-Methoden.
+
+### Fokus-Paar: Mitte merken und reproduzierbar fahren
+
+Mit einem verbundenen Fokuser (Alpaca) kannst du eine reproduzierbare Fokus-Mitte
+setzen und eine feste Defokus-Strecke beidseits anfahren — ideal für die Paar-Messung:
+
+1. **„Fokus hier merken“**: Speichert die aktuelle Fokuser-Position als Mitte. Die
+   App zeigt dann die Zielposition für Intra- und Extrafokal an (berechnet aus
+   Mitte ± Defokus-Schritte).
+2. **Defokus-Betrag**: Eingabefeld für die Defokus-Strecke in Fokuser-Schritten
+   (z. B. 200 Schritte für Intra, 200 für Extrafokal).
+3. **„→ Intrafokal“ / „→ Extrafokal“**: Fährt den Fokuser auf die berechnete Position.
+
+### Defokus automatisch suchen
+
+Statt Defokus-Betrag manuell zu raten:
+
+1. **„Defokus automatisch suchen“** startet eine Suche.
+2. Die App fährt schrittweise heraus, belichtet nach jedem Schritt und misst die
+   Donut-Größe.
+3. Sobald der Radius im Zielband liegt (ca. 30–150 px), übernimmt die App den
+   Betrag automatisch.
+4. Fortschrittsanzeige zeigt aktuelle Phase und Messwerte live.
+
+**Hinweis**: Nur mit Live-Kamera (Alpaca/ASI) möglich; bei Datei/Ordner-Quelle nicht nutzbar.
+
+### Paar-Messung
+
+Befüllt automatisch zwei Messplätze (A für intrafokal, B für extrafokal) per
+Knopfdruck oder manuell aus zwei Dateien:
+
+**Live-Paar-Messung** (mit Fokuser):
+1. Fokus-Mitte und Defokus-Betrag müssen vorher gesetzt sein (siehe oben).
+2. **„Paar-Messung starten“** fährt:
+   - intrafokal (Mitte − Defokus) → belichtet → Donut gemessen
+   - extrafokal (Mitte + Defokus) → belichtet → Donut gemessen
+   - zurück zur Fokus-Mitte
+3. Fortschrittsanzeige zeigt jede Stufe, Abbruch jederzeit möglich.
+
+**Manuelle Zuordnung** (aus Dateien):
+1. Lade ein FITS-Bild mit Donut.
+2. Die App versucht, die Fokuser-Position aus dem FITS-Header (Keyword `FOCPOS`)
+   zu lesen und dem passenden Platz (A/B) automatisch zuzuordnen — aber nur, wenn
+   du vorher eine Fokus-Mitte gemerkt hast.
+3. Falls kein Header-Wert: manuell mit **„als A (intrafokal) übernehmen“** oder
+   **„als B (extrafokal) übernehmen“** zuordnen.
+
+**Ergebnis**: Sobald beide Messplätze (A und B) voll sind, wertet die App automatisch aus:
+- **Echter Kollimationsfehler** (Mittel der normalisierten Versatzvektoren)
+- **Systematischer Anteil** (Differenz — Teleskop-Kennzahl, keine Justage-Aufgabe)
+- **Warnung bei Ungleichheit**: Sind die Donut-Radien sehr verschieden (Defokus
+  ungleich), wird gewarnt — das Ergebnis könnte unsicher sein.
+
+**Helligkeits-Ungleichmäßigkeit**: Pro Aufnahme zeigt die App zusätzlich eine Info
+über die Helligkeitsverteilung am Donut-Rand (Indikator für Koma). Dieser Wert
+fließt **noch nicht** in die Bewertung ein — Status ist „in Erprobung“.
+
 **So geht's-Box**: Auch der Sterntest-Modus zeigt unten in der Seitenleiste
 die blaue Kurzanleitung:
 
@@ -470,17 +542,21 @@ das Ziel:
 
 ![Schema: dezentriert vs. zentriert](bilder/donut-schema.svg)
 
-**Gegenprobe intrafokal/extrafokal**: Zum Schluss lohnt der Blick auf beide
-Seiten des Fokus — je ein Bild kurz **vor** dem Fokus (intrafokal) und kurz
-**hinter** dem Fokus (extrafokal) bei ähnlichem Defokus. Bei guter Kollimation
-sitzt die Obstruktion in **beiden** Richtungen zentriert; wandert sie beim
-Durchgang durch den Fokus von einer Seite zur anderen, ist noch Restversatz da.
-So sieht das Paar am echten Himmel aus (ASI2600MC, 2 s, Gain 400 — der Fokuser
-lässt sich dafür direkt aus der App fahren):
+**Gegenprobe intrafokal/extrafokal** — nur für Newton: Der Fangspiegel eines Newton ist absichtlich versetzt montiert; daher sitzt die Obstruktion im Einzelbild **nicht konzentrisch** im Donut und ist auch kein direktes Justage-Maß. Der echte Kollimationsfehler zeigt sich erst im **Vergleich zweier Aufnahmen** beidseits des Fokus. Die Versätze beider Bilder werden radiusnormiert und gemittelt — das Mittel ist der echte Fehler, die Differenz eine stabile Teleskop-Kennzahl (systematischer Anteil, keine Justage-Aufgabe).
+
+**Beispiel aus echten Messungen** (23.07., Newton): Intrafokal (R ≈ 92 px) Versatz **Δ = (−0,9; +3,7) px**, Extrafokal (R ≈ 68–83 px) Versatz **Δ = (+2,2; −1,9) px**. Gegenprobe:
+- Echter Fehler (Mittel): **1,3 % des Radius** — kollimiert ✓
+- Systematischer Anteil (Differenz): **3,8 % des Radius** — normal für diesen Teleskop-Typ
+
+Hätte man nach dem Einzelbild justiert, wäre der größere Versatz zum Dreifachen des echten Fehlers geführt — deutliche Überkorrektur.
+
+FreeCol trennt diese automatisch auf — die App zeigt damit beide Werte an und gibt nur für den echten Fehler Drehempfehlungen.
+
+So sieht das Paar am echten Himmel aus (ASI2600MC, 2 s, Gain 400 — der Fokuser lässt sich direkt aus der App fahren):
 
 | ![Intrafokaler Donut](bilder/donut-intrafokal.png) | ![Extrafokaler Donut](bilder/donut-extrafokal.png) |
 |---|---|
-| **Intrafokal** (R ≈ 92 px): Versatz ≈ 3,6 px (~4 % vom Radius) | **Extrafokal** (R ≈ 79 px): Versatz ≈ 2,9 px — Obstruktion beidseitig zentriert ✓ |
+| **Intrafokal** (R ≈ 92 px): Versatz ≈ 3,6 px (Rohwert) | **Extrafokal** (R ≈ 79 px): Versatz ≈ 2,9 px (Rohwert) — nach Paar-Auswertung: echter Fehler 1,3 % ✓ |
 
 ### Schrauben-Kalibrierung und Drehempfehlungen
 

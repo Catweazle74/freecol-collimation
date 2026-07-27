@@ -928,6 +928,15 @@
             <!-- Sterntest-Modus (defokussierte Achs-Kollimation, Datei-basiert) -->
             <StackPanel Spacing="8" IsVisible="{Binding IsStarTestMode}">
                 <TextBlock Text="Sterntest" FontWeight="Bold" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock Text="Teleskop:" VerticalAlignment="Center" />
+                    <RadioButton GroupName="TelescopeType" Content="Newton (Fangspiegel-Offset)"
+                                 IsChecked="{Binding IsNewtonTelescope}"
+                                 ToolTip.Tip="Fangspiegel sitzt konstruktiv versetzt — ein Rest-Versatz im Einzelbild ist normal. Der echte Kollimationsfehler zeigt sich erst im Vergleich zweier Aufnahmen beidseits des Fokus (Paar-Messung)." />
+                    <RadioButton GroupName="TelescopeType" Content="RC/SC (konzentrisch)"
+                                 IsChecked="{Binding IsRcOrScTelescope}"
+                                 ToolTip.Tip="Fangspiegel sitzt konstruktiv zentrisch (Ritchey-Chrétien, Schmidt-Cassegrain u. ä.) — der Versatz im Einzelbild ist hier direkt das Kollimationsmaß." />
+                </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <TextBlock Text="Quelle:" VerticalAlignment="Center" />
                     <ComboBox ItemsSource="{Binding StarTestSourceOptions}"
@@ -995,9 +1004,46 @@
                     </Grid>
                     <TextBlock Text="{Binding StarLoopInfoText}" FontSize="11" Foreground="#9CC0FF"
                                TextWrapping="Wrap" IsVisible="{Binding IsStarLoopRunning}" />
+                </StackPanel>
+                <StackPanel Spacing="4" IsVisible="{Binding IsStarAsiSource}">
+                    <TextBlock Text="Verbindung" FontSize="11" Foreground="#888" />
+                    <Button Content="🔍 ASI-Kamera suchen (USB)" Command="{Binding DiscoverAsiCommand}"
+                            HorizontalAlignment="Stretch" />
+                    <ComboBox ItemsSource="{Binding AsiFoundDevices}"
+                              SelectedItem="{Binding SelectedAsiFound}"
+                              HorizontalAlignment="Stretch"
+                              PlaceholderText="Gefundene Kamera wählen…" />
+                    <Button Content="{Binding AsiConnectionText}"
+                            Command="{Binding ToggleAsiConnectionCommand}"
+                            HorizontalAlignment="Stretch" />
 
-                    <!-- Fokuser am selben Alpaca-Server: defokussieren für den Donut
-                         und zurück zum Fokus, ohne Fremdsoftware. -->
+                    <TextBlock Text="Aufnahme" FontSize="11" Foreground="#888" Margin="0,6,0,0" />
+                    <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="6">
+                        <TextBlock Grid.Column="0" Text="Bel. s:" VerticalAlignment="Center"
+                                   ToolTip.Tip="Belichtungszeit in Sekunden. Länger = helleres Bild, aber helle Sterne brennen leichter aus." />
+                        <TextBox  Grid.Column="1" Text="{Binding AsiExposure}" />
+                        <TextBlock Grid.Column="2" Text="Gain:" VerticalAlignment="Center"
+                                   ToolTip.Tip="Signalverstärkung der Kamera. Höher = helleres, aber rauschigeres Bild." />
+                        <TextBox  Grid.Column="3" Text="{Binding AsiGain}" />
+                    </Grid>
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+                        <Button Grid.Column="0" Content="Belichten" Command="{Binding CaptureAsiCommand}"
+                                HorizontalAlignment="Stretch"
+                                ToolTip.Tip="Eine einzelne Belichtung aufnehmen." />
+                        <Button Grid.Column="1" Content="{Binding StarLoopButtonText}"
+                                Command="{Binding ToggleAsiLoopCommand}"
+                                HorizontalAlignment="Stretch"
+                                ToolTip.Tip="Kontinuierlich belichten: nach jedem Bild startet automatisch das nächste — praktisch beim Schrauben-Drehen. Belichtung/Gain wirken ab dem nächsten Bild." />
+                    </Grid>
+                    <TextBlock Text="{Binding StarLoopInfoText}" FontSize="11" Foreground="#9CC0FF"
+                               TextWrapping="Wrap" IsVisible="{Binding IsStarLoopRunning}" />
+                </StackPanel>
+
+                <!-- Fokuser über Alpaca: unabhängig von der Bild-Quelle sichtbar, sobald
+                     eine Live-Quelle (Alpaca ODER ASI) gewählt ist — der Fokuser hängt am
+                     Alpaca-/INDIGO-Server, die Bilder können trotzdem nativ über ASI kommen
+                     (typisches Setup: INDIGO-Fokuser-Agent + direkter ASI-USB-Zugriff). -->
+                <StackPanel Spacing="4" IsVisible="{Binding IsLiveStarTestSource}">
                     <TextBlock Text="Fokuser" FontSize="11" Foreground="#888" Margin="0,6,0,0" />
                     <Grid ColumnDefinitions="Auto,60,*" ColumnSpacing="6">
                         <TextBlock Grid.Column="0" Text="Gerät:" VerticalAlignment="Center"
@@ -1035,41 +1081,102 @@
                                       PlaceholderText="Zielposition in Schritten" FontSize="12" />
                             <Button   Grid.Column="2" Content="Fahren" Command="{Binding FocuserGoToCommand}" />
                         </Grid>
+
+                        <!-- Fokus-Paar: reproduzierbar zwischen Intra-/Extrafokal wechseln —
+                             die Kollimations-Auswertung aus dem Vergleich beider Bilder folgt
+                             in einem separaten Schritt. -->
+                        <TextBlock Text="Fokus-Paar" FontSize="11" Foreground="#888" Margin="0,6,0,0" />
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                            <TextBlock Grid.Column="0" Text="{Binding FocusPairStatusText}" FontSize="12"
+                                       VerticalAlignment="Center" TextWrapping="Wrap" />
+                            <Button   Grid.Column="1" Content="Fokus hier merken"
+                                      Command="{Binding MarkFocusCenterCommand}"
+                                      ToolTip.Tip="Übernimmt die aktuelle Fokuser-Position als Fokus-Mitte für Intra-/Extrafokal." />
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                            <TextBlock Grid.Column="0" Text="Defokus (Schritte):" VerticalAlignment="Center" FontSize="12" />
+                            <TextBox  Grid.Column="1" Text="{Binding DefocusSteps}" FontSize="12" />
+                        </Grid>
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+                            <Button Grid.Column="0" Content="→ Intrafokal" Command="{Binding GoToIntraFocusCommand}"
+                                    HorizontalAlignment="Stretch"
+                                    ToolTip.Tip="Fährt Fokus-Mitte minus Defokus-Betrag an." />
+                            <Button Grid.Column="1" Content="→ Extrafokal" Command="{Binding GoToExtraFocusCommand}"
+                                    HorizontalAlignment="Stretch"
+                                    ToolTip.Tip="Fährt Fokus-Mitte plus Defokus-Betrag an." />
+                        </Grid>
+                        <Button Content="Defokus automatisch suchen" Command="{Binding AutoFindDefocusCommand}"
+                                HorizontalAlignment="Stretch"
+                                ToolTip.Tip="Fährt schrittweise aus dem Fokus, bis der Donut-Außenradius im Zielband liegt, und verifiziert kurz die Gegenseite (nur Live-Quelle Alpaca/ASI)." />
+
+                        <!-- Fortschritts-/Ergebnis-Block: bleibt auch NACH dem Lauf mit dem
+                             Ergebnis stehen — eine flüchtige Statuszeile allein reicht nicht. -->
+                        <Border IsVisible="{Binding ShowAutoFindDefocusPanel}"
+                                Background="#1A6495ED" BorderBrush="#6495ED" BorderThickness="1"
+                                CornerRadius="4" Padding="8" Margin="0,4,0,0">
+                            <StackPanel Spacing="3">
+                                <TextBlock Text="{Binding AutoFindDefocusTargetText}" FontSize="11" Foreground="#9CC0FF" />
+                                <StackPanel Spacing="3" IsVisible="{Binding IsAutoFindDefocusRunning}">
+                                    <TextBlock Text="{Binding AutoFindDefocusStepText}" FontSize="11" />
+                                    <TextBlock Text="{Binding AutoFindDefocusPhaseText}" FontWeight="Bold"
+                                               FontSize="12" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding AutoFindDefocusMeasurementText}" FontSize="12"
+                                               TextWrapping="Wrap" />
+                                    <Button Content="✕ Abbrechen" Command="{Binding CancelAutoFindDefocusCommand}"
+                                            HorizontalAlignment="Left" FontSize="11" Padding="8,2,8,2" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding AutoFindDefocusResultText}" FontWeight="Bold" FontSize="12"
+                                           TextWrapping="Wrap" Foreground="#3CB371"
+                                           IsVisible="{Binding !IsAutoFindDefocusRunning}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Paar-Messung: fährt Intra-/Extra-Position automatisch an und
+                             belichtet je eine Aufnahme (Newton-Bewertung, siehe Auswertung
+                             unten). Braucht wie die Defokus-Suche eine Live-Quelle. -->
+                        <Button Content="Paar-Messung (intra-/extrafokal)" Command="{Binding MeasurePairCommand}"
+                                HorizontalAlignment="Stretch" Margin="0,4,0,0"
+                                ToolTip.Tip="Fährt die intrafokale Position an, belichtet, fährt dann die extrafokale Position an und belichtet erneut — beide Aufnahmen zusammen ergeben die Newton-Kollimationsauswertung unten." />
+                        <Border IsVisible="{Binding ShowPairMeasurementPanel}"
+                                Background="#1A6495ED" BorderBrush="#6495ED" BorderThickness="1"
+                                CornerRadius="4" Padding="8" Margin="0,4,0,0">
+                            <StackPanel Spacing="3">
+                                <StackPanel Spacing="3" IsVisible="{Binding IsPairMeasurementRunning}">
+                                    <TextBlock Text="{Binding PairMeasurementPhaseText}" FontWeight="Bold"
+                                               FontSize="12" TextWrapping="Wrap" />
+                                    <Button Content="✕ Abbrechen" Command="{Binding CancelPairMeasurementCommand}"
+                                            HorizontalAlignment="Left" FontSize="11" Padding="8,2,8,2" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding PairMeasurementResultText}" FontWeight="Bold" FontSize="12"
+                                           TextWrapping="Wrap" Foreground="#3CB371"
+                                           IsVisible="{Binding !IsPairMeasurementRunning}" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </StackPanel>
-                <StackPanel Spacing="4" IsVisible="{Binding IsStarAsiSource}">
-                    <TextBlock Text="Verbindung" FontSize="11" Foreground="#888" />
-                    <Button Content="🔍 ASI-Kamera suchen (USB)" Command="{Binding DiscoverAsiCommand}"
-                            HorizontalAlignment="Stretch" />
-                    <ComboBox ItemsSource="{Binding AsiFoundDevices}"
-                              SelectedItem="{Binding SelectedAsiFound}"
-                              HorizontalAlignment="Stretch"
-                              PlaceholderText="Gefundene Kamera wählen…" />
-                    <Button Content="{Binding AsiConnectionText}"
-                            Command="{Binding ToggleAsiConnectionCommand}"
-                            HorizontalAlignment="Stretch" />
 
-                    <TextBlock Text="Aufnahme" FontSize="11" Foreground="#888" Margin="0,6,0,0" />
-                    <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="6">
-                        <TextBlock Grid.Column="0" Text="Bel. s:" VerticalAlignment="Center"
-                                   ToolTip.Tip="Belichtungszeit in Sekunden. Länger = helleres Bild, aber helle Sterne brennen leichter aus." />
-                        <TextBox  Grid.Column="1" Text="{Binding AsiExposure}" />
-                        <TextBlock Grid.Column="2" Text="Gain:" VerticalAlignment="Center"
-                                   ToolTip.Tip="Signalverstärkung der Kamera. Höher = helleres, aber rauschigeres Bild." />
-                        <TextBox  Grid.Column="3" Text="{Binding AsiGain}" />
-                    </Grid>
-                    <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
-                        <Button Grid.Column="0" Content="Belichten" Command="{Binding CaptureAsiCommand}"
-                                HorizontalAlignment="Stretch"
-                                ToolTip.Tip="Eine einzelne Belichtung aufnehmen." />
-                        <Button Grid.Column="1" Content="{Binding StarLoopButtonText}"
-                                Command="{Binding ToggleAsiLoopCommand}"
-                                HorizontalAlignment="Stretch"
-                                ToolTip.Tip="Kontinuierlich belichten: nach jedem Bild startet automatisch das nächste — praktisch beim Schrauben-Drehen. Belichtung/Gain wirken ab dem nächsten Bild." />
-                    </Grid>
-                    <TextBlock Text="{Binding StarLoopInfoText}" FontSize="11" Foreground="#9CC0FF"
-                               TextWrapping="Wrap" IsVisible="{Binding IsStarLoopRunning}" />
-                </StackPanel>
+                <!-- Paar-Messung: Messplätze A/B (Datei-Weg: automatisch aus dem FITS-
+                     Header zugeordnet, wenn eine Fokus-Mitte gemerkt ist; sonst manuell
+                     per Button). Helligkeits-Ungleichmäßigkeit ist reine Info-Zeile,
+                     fließt NICHT in die Bewertung ein. -->
+                <Border Background="#11FFFFFF" CornerRadius="4" Padding="8">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Paar-Messung — Messplätze" FontWeight="Bold" FontSize="12" />
+                        <TextBlock Text="{Binding PairSlotAText}" FontSize="11" TextWrapping="Wrap" Foreground="#AAA" />
+                        <TextBlock Text="{Binding PairSlotBText}" FontSize="11" TextWrapping="Wrap" Foreground="#AAA" />
+                        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="6">
+                            <Button Grid.Column="0" Content="als A übernehmen" Command="{Binding AssignCurrentAsPairACommand}"
+                                    HorizontalAlignment="Stretch"
+                                    ToolTip.Tip="Übernimmt das aktuell geladene/analysierte Bild als intrafokale Aufnahme A — falls der Fokuser-Header keine automatische Zuordnung erlaubt." />
+                            <Button Grid.Column="1" Content="als B übernehmen" Command="{Binding AssignCurrentAsPairBCommand}"
+                                    HorizontalAlignment="Stretch"
+                                    ToolTip.Tip="Übernimmt das aktuell geladene/analysierte Bild als extrafokale Aufnahme B." />
+                            <Button Grid.Column="2" Content="Paar zurücksetzen" Command="{Binding ResetPairCommand}"
+                                    HorizontalAlignment="Stretch" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
                 <TextBlock Text="{Binding StarTestQualityHint}" TextWrapping="Wrap"
                            FontSize="12" Foreground="#9CC0FF" />
                 <Border Background="#11FFFFFF" CornerRadius="4" Padding="8"
@@ -1081,6 +1188,9 @@
                         <TextBlock Text="{Binding StarTestOffsetText}" FontSize="13" />
                         <TextBlock Text="{Binding StarTestGeometryText}" FontSize="11" Foreground="#AAA"
                                    ToolTip.Tip="Obstruktion = Verhältnis innerer Fangspiegel-Schatten zur Außenscheibe. Beim 150PDS physisch ca. 0,3; dient als Plausibilitätsmaß, ob ein echter Donut erkannt wurde." />
+                        <TextBlock Text="{Binding StarTestUnequalDefocusWarningText}" FontSize="11"
+                                   Foreground="#FF8C42" TextWrapping="Wrap"
+                                   IsVisible="{Binding ShowStarTestUnequalDefocusWarning}" />
                     </StackPanel>
                 </Border>
 
@@ -1105,7 +1215,7 @@
                     </StackPanel>
                 </Border>
                 <TextBlock FontSize="11" Foreground="#888" TextWrapping="Wrap"
-                           Text="Grün = Scheibchen (SOLL), Rot = Obstruktion (IST), Gelb = Versatz zwischen beiden. Je kleiner der gelbe Versatz, desto besser kollimiert.&#10;Anleitung: Stern mittig stellen und mittel defokussieren, bis ein Donut sichtbar ist. Dann je ein Bild vor dem Fokus (intrafokal) und nach dem Fokus (extrafokal) bei gleichem Defokus vergleichen — bei guter Kollimation sitzt die Obstruktion in beiden zentriert." />
+                           Text="{Binding StarOverlayExplanationText}" />
 
                 <!-- Hauptspiegel-Schrauben: Kalibrierung + Drehempfehlung -->
                 <TextBlock Text="Hauptspiegel-Schrauben" FontWeight="Bold" Margin="0,6,0,0" />
