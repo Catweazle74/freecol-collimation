@@ -463,6 +463,18 @@ das Ziel:
 
 ![Schema: dezentriert vs. zentriert](bilder/donut-schema.svg)
 
+**Gegenprobe intrafokal/extrafokal**: Zum Schluss lohnt der Blick auf beide
+Seiten des Fokus — je ein Bild kurz **vor** dem Fokus (intrafokal) und kurz
+**hinter** dem Fokus (extrafokal) bei ähnlichem Defokus. Bei guter Kollimation
+sitzt die Obstruktion in **beiden** Richtungen zentriert; wandert sie beim
+Durchgang durch den Fokus von einer Seite zur anderen, ist noch Restversatz da.
+So sieht das Paar am echten Himmel aus (ASI2600MC, 2 s, Gain 400 — der Fokuser
+lässt sich dafür direkt aus der App fahren):
+
+| ![Intrafokaler Donut](bilder/donut-intrafokal.png) | ![Extrafokaler Donut](bilder/donut-extrafokal.png) |
+|---|---|
+| **Intrafokal** (R ≈ 92 px): Versatz ≈ 3,6 px (~4 % vom Radius) | **Extrafokal** (R ≈ 79 px): Versatz ≈ 2,9 px — Obstruktion beidseitig zentriert ✓ |
+
 ### Schrauben-Kalibrierung und Drehempfehlungen
 
 Genau wie in der geführten Justage müssen die drei Hauptspiegel-Schrauben
