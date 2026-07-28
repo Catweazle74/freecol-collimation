@@ -928,8 +928,11 @@
             <!-- Sterntest-Modus (defokussierte Achs-Kollimation, Datei-basiert) -->
             <StackPanel Spacing="8" IsVisible="{Binding IsStarTestMode}">
                 <TextBlock Text="Sterntest" FontWeight="Bold" />
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                    <TextBlock Text="Teleskop:" VerticalAlignment="Center" />
+                <!-- Untereinander statt nebeneinander: die 320-px-Sidebar ist zu
+                     schmal für beide Beschriftungen in einer Zeile — die zweite
+                     Option lag sonst außerhalb und war unerreichbar. -->
+                <StackPanel Spacing="2">
+                    <TextBlock Text="Teleskop:" Foreground="#888" FontSize="11" />
                     <RadioButton GroupName="TelescopeType" Content="Newton (Fangspiegel-Offset)"
                                  IsChecked="{Binding IsNewtonTelescope}"
                                  ToolTip.Tip="Fangspiegel sitzt konstruktiv versetzt — ein Rest-Versatz im Einzelbild ist normal. Der echte Kollimationsfehler zeigt sich erst im Vergleich zweier Aufnahmen beidseits des Fokus (Paar-Messung)." />
